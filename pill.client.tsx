@@ -25,6 +25,18 @@ const REFRESH_MS = 20_000;
 /** Pointer dwell before the tooltip opens, so passing over the pill is quiet. */
 const HOVER_DELAY_MS = 300;
 
+/**
+ * The host's own pill chrome, mirrored from Paseo's `composerPillStyles`:
+ * `spacing[3]` and `spacing[1]` of padding inside a 1px border.
+ *
+ * A plugin renders *inside* that padding, so a hover region left at its natural
+ * size answers only over the glyph and stays dead across most of the pill the user
+ * is actually pointing at. Cancelling the padding with an equal negative margin
+ * grows the region to the pill's edge and leaves the layout exactly where it was —
+ * the pill's measured size is unchanged, since the two cancel.
+ */
+const HOST_PILL_INSET = { horizontal: 13, vertical: 5 };
+
 interface PillState {
   readonly showPill: boolean;
   readonly autopilot: boolean;
@@ -120,7 +132,18 @@ export function AutoCompactPill({ theme, agentId }: PluginComposerPillProps) {
       : theme.colors.statusWarning;
   return (
     <View
-      style={{ flexDirection: "row", alignItems: "center" }}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        // Stretch plus the cancelled padding is what makes the whole pill hoverable,
+        // vertically as well: Paseo's pill is 32px high and this glyph is 14.
+        alignSelf: "stretch",
+        marginVertical: -HOST_PILL_INSET.vertical,
+        marginHorizontal: -HOST_PILL_INSET.horizontal,
+        paddingVertical: HOST_PILL_INSET.vertical,
+        paddingHorizontal: HOST_PILL_INSET.horizontal,
+      }}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
     >
