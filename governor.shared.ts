@@ -38,7 +38,7 @@ export type CompactionRequest = z.infer<typeof CompactionRequestSchema>;
  * tool sequence loses exactly the state the agent had not written down yet.
  */
 export const requestCompaction = defineRpc({
-  name: "super-session.compact.request",
+  name: "smart-session.compact.request",
   input: z.object({
     agentId: z.string(),
     reason: z.string(),
@@ -48,13 +48,13 @@ export const requestCompaction = defineRpc({
 });
 
 export const listCompactions = defineRpc({
-  name: "super-session.compact.list",
+  name: "smart-session.compact.list",
   input: z.object({ agentId: z.string().optional() }),
   output: z.object({ items: z.array(CompactionRequestSchema) }),
 });
 
 export const cancelCompaction = defineRpc({
-  name: "super-session.compact.cancel",
+  name: "smart-session.compact.cancel",
   input: z.object({ id: z.string() }),
   output: z.object({ ok: z.boolean() }),
 });
@@ -81,13 +81,13 @@ export const EnrolmentStateSchema = z.object({
 export type EnrolmentState = z.infer<typeof EnrolmentStateSchema>;
 
 export const enrolmentState = defineRpc({
-  name: "super-session.enrolment.state",
+  name: "smart-session.enrolment.state",
   input: z.object({}),
   output: EnrolmentStateSchema,
 });
 
 export const setEnrolment = defineRpc({
-  name: "super-session.enrolment.set",
+  name: "smart-session.enrolment.set",
   input: z.object({ agentId: z.string(), enrolled: z.boolean() }),
   output: z.object({ agent: AgentEnrolmentSchema }),
 });

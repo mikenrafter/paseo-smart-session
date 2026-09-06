@@ -2,7 +2,7 @@
 /**
  * A stdio MCP server that lets an agent see its own context and ask to be compacted.
  *
- * This is the half of Super Session that the *model* talks to. The plugin records
+ * This is the half of Smart Session that the *model* talks to. The plugin records
  * and delivers; this exposes three tools to the agent running inside Paseo:
  * how full am I, how much plan budget is left, and please compact me.
  *
@@ -20,7 +20,7 @@ import { randomUUID } from "node:crypto";
 
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 
-const PLUGIN_ID = "super-session";
+const PLUGIN_ID = "smart-session";
 const AGENT_ID = process.env.PASEO_AGENT_ID ?? null;
 
 /**
@@ -32,7 +32,7 @@ const AGENT_ID = process.env.PASEO_AGENT_ID ?? null;
  * fails is worse than one that is absent.
  *
  * `budget_status` needs no session identity and is useful anywhere, so it stays.
- * Set SUPER_SESSION_MCP_SCOPE=paseo to offer nothing at all outside Paseo.
+ * Set SMART_SESSION_MCP_SCOPE=paseo to offer nothing at all outside Paseo.
  *
  * This is the cheap half of scoping. Claude Code 2.1.261 defers MCP tool loading —
  * tools appear as bare names until something asks for their schema — so an empty
@@ -43,17 +43,17 @@ const AGENT_SCOPED = new Set(["context_status", "checkpoint", "request_compactio
 
 function availableTools() {
   if (AGENT_ID !== null) return Object.keys(TOOLS);
-  if (process.env.SUPER_SESSION_MCP_SCOPE === "paseo") return [];
+  if (process.env.SMART_SESSION_MCP_SCOPE === "paseo") return [];
   return Object.keys(TOOLS).filter((name) => !AGENT_SCOPED.has(name));
 }
 
 /** stdout carries protocol only; anything else corrupts the stream. */
-const log = (...args) => console.error("[super-session mcp]", ...args);
+const log = (...args) => console.error("[smart-session mcp]", ...args);
 
 async function callPlugin(method, input) {
   const client = new DaemonClient({
     url: process.env.PASEO_DAEMON_URL ?? "ws://127.0.0.1:6767/ws",
-    clientId: "super-session-mcp",
+    clientId: "smart-session-mcp",
     clientType: "cli",
     reconnect: { enabled: false },
     connectTimeoutMs: 10_000,
@@ -90,10 +90,10 @@ const HOURS = (ms) => ms / 3_600_000;
  * so it survives compaction, `/clear`, and the model forgetting the path.
  */
 function statePath() {
-  const override = process.env.SUPER_SESSION_STATE_FILE;
+  const override = process.env.SMART_SESSION_STATE_FILE;
   if (override !== undefined && override !== "") return override;
   const home = process.env.PASEO_HOME ?? join(homedir(), ".paseo");
-  return join(home, "plugin-data", "super-session", "state", `${requireAgent()}.md`);
+  return join(home, "plugin-data", "smart-session", "state", `${requireAgent()}.md`);
 }
 
 const SECTIONS = ["Goal", "Plan", "Current step", "Decisions", "Dead ends", "Key facts"];
@@ -160,7 +160,7 @@ const TOOLS = {
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     async run() {
       const agentId = requireAgent();
-      const result = await callPlugin("super-session.context", { agentId });
+      const result = await callPlugin("smart-session.context", { agentId });
       const mine = result.agents?.[0];
       if (mine === undefined) {
         return "No context reading for this session yet — it reports one after its first completed turn.";
@@ -203,7 +203,7 @@ const TOOLS = {
       "How much of the Claude plan's rolling 5-hour and weekly limits is already consumed, how fast, and when each window resets. Call this before spawning several subagents, before a long autonomous run, or when deciding whether to use a more expensive model.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     async run() {
-      const result = await callPlugin("super-session.budget", {});
+      const result = await callPlugin("smart-session.budget", {});
       if (result.error) return `Could not read plan usage: ${result.error}`;
       const interesting = (result.windows ?? []).filter(
         (window) => window.id === "five_hour" || window.id === "seven_day" || window.pct > 0,
@@ -322,7 +322,7 @@ const TOOLS = {
     },
     async run(args) {
       const agentId = requireAgent();
-      const result = await callPlugin("super-session.compact.request", {
+      const result = await callPlugin("smart-session.compact.request", {
         agentId,
         reason: String(args.reason ?? "no reason given"),
         // Default to this session's own state file: the whole point is that the
@@ -362,7 +362,7 @@ async function handle(request) {
     respond(id, {
       protocolVersion: params?.protocolVersion ?? "2025-06-18",
       capabilities: { tools: {} },
-      serverInfo: { name: "super-session", version: "0.1.0" },
+      serverInfo: { name: "smart-session", version: "0.2.0" },
     });
     return;
   }

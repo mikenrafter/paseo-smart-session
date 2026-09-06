@@ -7,7 +7,7 @@ import { contextGrowth, projectFull } from "./growth.server.ts";
 import { countEnrolled, listEnrolment, readSettings, setEnrolled, writeSettings } from "./settings.server.ts";
 import { profileFor } from "./thresholds.shared.ts";
 import { summarizeSpend } from "./spend.server.ts";
-import { budgetStatus, contextStatus, getSettings, setSettings, spendSummary } from "./supersession.shared.ts";
+import { budgetStatus, contextStatus, getSettings, setSettings, spendSummary } from "./smart-session.shared.ts";
 import {
   cancelCompaction,
   enrolmentState,
@@ -17,7 +17,7 @@ import {
 } from "./governor.shared.ts";
 import { segmentBlocks, burnRatePctPerHour, projectedExhaustion } from "./blocks.shared.ts";
 import { effectiveAt } from "./usage.shared.ts";
-import { SuperSessionSurface } from "./surface.client";
+import { SmartSessionSurface } from "./surface.client";
 import { contributeClient, refreshPills } from "./pill.client";
 
 // Importing the recorder for its side effect: it starts on load and records
@@ -158,10 +158,10 @@ export default function contribute(plugin: PluginContext) {
     agent: await setEnrolled(agentId, enrolled),
   }));
 
-  plugin.addSurface("overview", SuperSessionSurface);
+  plugin.addSurface("overview", SmartSessionSurface);
   plugin.addSidebarItem({
-    id: "super-session",
-    title: "Super Session",
+    id: "smart-session",
+    title: "Smart Session",
     icon: "Gauge",
     surface: "overview",
   });
@@ -169,7 +169,7 @@ export default function contribute(plugin: PluginContext) {
   plugin.addClientSide(contributeClient);
 
   plugin.addCommandCenterItem({
-    id: "super-session-open",
+    id: "smart-session-open",
     title: "Show plan usage and agent context",
     icon: "Gauge",
     keywords: ["usage", "budget", "limit", "context", "tokens", "compact"],
@@ -180,7 +180,7 @@ export default function contribute(plugin: PluginContext) {
   });
 
   plugin.addCommandCenterItem({
-    id: "super-session-pill",
+    id: "smart-session-pill",
     title: "Show or hide the smart-compact pill",
     icon: "ToggleLeft",
     keywords: ["pill", "compact", "autopilot", "governor", "enrol"],

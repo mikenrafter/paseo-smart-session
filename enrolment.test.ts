@@ -20,7 +20,7 @@ async function withHome(): Promise<{
 }> {
   const home = mkdtempSync(join(tmpdir(), "ss-enrol-"));
   process.env.PASEO_HOME = home;
-  const stateDir = join(home, "plugin-data", "super-session", "state");
+  const stateDir = join(home, "plugin-data", "smart-session", "state");
   mkdirSync(stateDir, { recursive: true });
   return {
     home,
@@ -83,7 +83,7 @@ test("concurrent toggles do not lose one another", async () => {
     settings.setEnrolled("agent-3", false),
   ]);
   const written = JSON.parse(
-    readFileSync(join(home, "plugin-data", "super-session", "enrolment.json"), "utf8"),
+    readFileSync(join(home, "plugin-data", "smart-session", "enrolment.json"), "utf8"),
   ) as Record<string, boolean>;
   assert.deepEqual(written, { "agent-1": true, "agent-2": true, "agent-3": false });
 });
@@ -91,7 +91,7 @@ test("concurrent toggles do not lose one another", async () => {
 test("a corrupt overrides file costs the overrides, not the plugin", async () => {
   const { settings, home, checkpoint } = await withHome();
   checkpoint("agent-1");
-  writeFileSync(join(home, "plugin-data", "super-session", "enrolment.json"), "{ not json", "utf8");
+  writeFileSync(join(home, "plugin-data", "smart-session", "enrolment.json"), "{ not json", "utf8");
   assert.deepEqual(await settings.listEnrolment(), [
     { agentId: "agent-1", enrolled: true, explicit: false },
   ]);

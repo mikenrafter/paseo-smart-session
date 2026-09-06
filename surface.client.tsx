@@ -8,7 +8,7 @@ import { DailyBars, HourHeatmap, RankedTotals } from "./charts.client";
 import { refreshPills } from "./pill.client";
 import { enrolmentState } from "./governor.shared";
 import { formatRelative, formatTokens, isInteresting, windowLabel } from "./format.shared";
-import { budgetStatus, contextStatus, getSettings, setSettings, spendSummary } from "./supersession.shared";
+import { budgetStatus, contextStatus, getSettings, setSettings, spendSummary } from "./smart-session.shared";
 
 type Theme = PluginSurfaceProps["theme"];
 
@@ -121,7 +121,7 @@ function Toggle({
   );
 }
 
-export function SuperSessionSurface({ theme, layout }: PluginSurfaceProps) {
+export function SmartSessionSurface({ theme, layout }: PluginSurfaceProps) {
   const budget = useRpc(budgetStatus);
   const context = useRpc(contextStatus);
   const spend = useRpc(spendSummary);
@@ -133,22 +133,22 @@ export function SuperSessionSurface({ theme, layout }: PluginSurfaceProps) {
 
   // The daemon serves usage from a five-minute cache, so polling it harder than
   // the recorder does would only redraw the same number.
-  const budgetQuery = useQuery({ queryKey: ["super-session", "budget"], queryFn: () => budget({}), refetchInterval: 30_000 });
+  const budgetQuery = useQuery({ queryKey: ["smart-session", "budget"], queryFn: () => budget({}), refetchInterval: 30_000 });
   const contextQuery = useQuery({
-    queryKey: ["super-session", "context"],
+    queryKey: ["smart-session", "context"],
     queryFn: () => context({}),
     refetchInterval: 15_000,
   });
 
   // Reconstructed from transcripts, which only change when an agent writes a turn.
   const spendQuery = useQuery({
-    queryKey: ["super-session", "spend"],
+    queryKey: ["smart-session", "spend"],
     queryFn: () => spend({ days: 30 }),
     refetchInterval: 5 * 60_000,
   });
 
   const settingsQuery = useQuery({
-    queryKey: ["super-session", "settings"],
+    queryKey: ["smart-session", "settings"],
     queryFn: () => readSettings({}),
     refetchInterval: 60_000,
   });
@@ -162,7 +162,7 @@ export function SuperSessionSurface({ theme, layout }: PluginSurfaceProps) {
     void writeSettings({ autopilot: next })
       .then(() => {
         toast.show(next ? "Autopilot on" : "Autopilot off");
-        return queryClient.invalidateQueries({ queryKey: ["super-session", "settings"] });
+        return queryClient.invalidateQueries({ queryKey: ["smart-session", "settings"] });
       })
       .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
   }
@@ -176,7 +176,7 @@ export function SuperSessionSurface({ theme, layout }: PluginSurfaceProps) {
       .then(() => refreshPills(() => readEnrolment({})))
       .then(() => {
         toast.show(next ? "Pill shown on every agent" : "Pill hidden");
-        return queryClient.invalidateQueries({ queryKey: ["super-session", "settings"] });
+        return queryClient.invalidateQueries({ queryKey: ["smart-session", "settings"] });
       })
       .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
   }
@@ -192,7 +192,7 @@ export function SuperSessionSurface({ theme, layout }: PluginSurfaceProps) {
     <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface0 }} contentContainerStyle={{ padding, gap: 24 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Icon name="Gauge" size={18} color={theme.colors.foreground} />
-        <Text style={{ color: theme.colors.foreground, fontSize: 18, fontWeight: "700" }}>Super Session</Text>
+        <Text style={{ color: theme.colors.foreground, fontSize: 18, fontWeight: "700" }}>Smart Session</Text>
       </View>
 
       {error !== null ? (

@@ -1,12 +1,12 @@
 {
-  "name": "paseo-super-session",
+  "name": "paseo-smart-session",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Records Claude plan-usage history and lets a Paseo agent manage its own context.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tomgrin10/paseo-super-session.git"
+    "url": "git+https://github.com/tomgrin10/paseo-smart-session.git"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

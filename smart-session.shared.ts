@@ -35,7 +35,7 @@ export const RecorderStatusSchema = z.object({
  * fast am I spending it".
  */
 export const budgetStatus = defineRpc({
-  name: "super-session.budget",
+  name: "smart-session.budget",
   input: z.object({}),
   output: z.object({
     windows: z.array(WindowStatusSchema),
@@ -64,7 +64,7 @@ export const ContextStatusSchema = z.object({
 
 /** Context occupancy for one agent, or all of them. */
 export const contextStatus = defineRpc({
-  name: "super-session.context",
+  name: "smart-session.context",
   input: z.object({ agentId: z.string().optional() }),
   output: z.object({
     agents: z.array(ContextStatusSchema),
@@ -95,13 +95,13 @@ export const SettingsSchema = z.object({
 
 /** Read the governor's settings, and the count of agents currently enrolled. */
 export const getSettings = defineRpc({
-  name: "super-session.settings.get",
+  name: "smart-session.settings.get",
   input: z.object({}),
   output: z.object({ settings: SettingsSchema, enrolledAgents: z.number() }),
 });
 
 export const setSettings = defineRpc({
-  name: "super-session.settings.set",
+  name: "smart-session.settings.set",
   input: SettingsSchema.partial(),
   output: z.object({ settings: SettingsSchema }),
 });
@@ -122,7 +122,7 @@ export const SpendSummarySchema = z.object({
 
 /** Token spend reconstructed from transcripts — the history from before the recorder. */
 export const spendSummary = defineRpc({
-  name: "super-session.spend",
+  name: "smart-session.spend",
   input: z.object({ days: z.number().optional() }),
   output: z.object({ summary: SpendSummarySchema, error: z.string().nullable() }),
 });

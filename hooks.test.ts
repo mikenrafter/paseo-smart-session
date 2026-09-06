@@ -137,9 +137,9 @@ test("the hook and the plugin agree on where the bands are", async () => {
 
 test("settings on disk override the hook's built-in bands", async () => {
   const home = mkdtempSync(join(tmpdir(), "ss-hook-"));
-  mkdirSync(join(home, "plugin-data", "super-session"), { recursive: true });
+  mkdirSync(join(home, "plugin-data", "smart-session"), { recursive: true });
   writeFileSync(
-    join(home, "plugin-data", "super-session", "settings.json"),
+    join(home, "plugin-data", "smart-session", "settings.json"),
     JSON.stringify({ thresholds: { large: { notice: 5, closing: 6, compact: 7 } } }),
     "utf8",
   );
@@ -199,13 +199,13 @@ test("PostCompact records and leaves a pointer, but never speaks itself", async 
   );
   assert.equal(output, "", "PostCompact must stay silent rather than emit output the host rejects");
 
-  const pending = JSON.parse(readFileSync(join(home, "plugin-data", "super-session", "pointers", "agent-1.json"), "utf8")) as {
+  const pending = JSON.parse(readFileSync(join(home, "plugin-data", "smart-session", "pointers", "agent-1.json"), "utf8")) as {
     text: string;
   };
   assert.match(pending.text, /No durable state file exists yet/);
   assert.match(pending.text, /agent-1\.md/);
 
-  const events = readFileSync(join(home, "plugin-data", "super-session", "compaction-events.jsonl"), "utf8").trim();
+  const events = readFileSync(join(home, "plugin-data", "smart-session", "compaction-events.jsonl"), "utf8").trim();
   assert.match(events, /"event":"PostCompact"/);
 });
 
@@ -218,14 +218,14 @@ test("SessionStart on compact delivers the pointer and consumes it", async () =>
     await runHook(
       "hooks/post-compact.mjs",
       { hook_event_name: "SessionStart", session_id: "s7", transcript_path: "/tmp/x", cwd: "/tmp", source: "compact" },
-      { PASEO_HOME: home, PASEO_AGENT_ID: "agent-2", SUPER_SESSION_STATE_FILE: statePath },
+      { PASEO_HOME: home, PASEO_AGENT_ID: "agent-2", SMART_SESSION_STATE_FILE: statePath },
     ),
   );
   assert.match(advice, /Durable task state for this session is at/);
   assert.match(advice, /the file is correct/);
   // Not deleted but marked: PostCompact fires just after and must know this was
   // already said.
-  const note = JSON.parse(readFileSync(join(home, "plugin-data", "super-session", "pointers", "agent-2.json"), "utf8")) as {
+  const note = JSON.parse(readFileSync(join(home, "plugin-data", "smart-session", "pointers", "agent-2.json"), "utf8")) as {
     delivered?: boolean;
   };
   assert.equal(note.delivered, true);
@@ -270,7 +270,7 @@ test("the two compaction events deliver the pointer once between them", async ()
   const home = mkdtempSync(join(tmpdir(), "ss-hook-"));
   const statePath = join(home, "state.md");
   writeFileSync(statePath, "# Task state\n", "utf8");
-  const env = { PASEO_HOME: home, PASEO_AGENT_ID: "agent-5", SUPER_SESSION_STATE_FILE: statePath };
+  const env = { PASEO_HOME: home, PASEO_AGENT_ID: "agent-5", SMART_SESSION_STATE_FILE: statePath };
   const base = { session_id: "s10", transcript_path: "/tmp/x", cwd: "/tmp" };
 
   const spoken = await runHook("hooks/post-compact.mjs", { ...base, hook_event_name: "SessionStart", source: "compact" }, env);

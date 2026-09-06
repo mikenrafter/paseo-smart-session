@@ -46,7 +46,7 @@ async function readAll(): Promise<CompactionRequest[]> {
     return parsed.items ?? [];
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") console.error("[super-session] could not read the compaction queue", String(error));
+    if (code !== "ENOENT") console.error("[smart-session] could not read the compaction queue", String(error));
     return [];
   }
 }
@@ -181,7 +181,7 @@ async function autopilot(agents: Iterable<AgentRow>, client: Parameters<typeof s
     );
     if (recent !== undefined) {
       console.error(
-        `[super-session] ${agent.id.slice(0, 8)} refilled to ${Math.round(pct)}% within minutes of compacting; not compacting again. Something in this loop is reading more than it keeps — a fresh session would serve it better.`,
+        `[smart-session] ${agent.id.slice(0, 8)} refilled to ${Math.round(pct)}% within minutes of compacting; not compacting again. Something in this loop is reading more than it keeps — a fresh session would serve it better.`,
       );
       continue;
     }
@@ -204,7 +204,7 @@ async function autopilot(agents: Iterable<AgentRow>, client: Parameters<typeof s
             : "your task state on disk is older than the work it describes"
         }. Bring it up to date with the checkpoint tool now — goal, the step in progress and its exact next action, decisions and why, and every approach already tried and rejected. Do that and stop; you will be compacted straight after, and anything not written down will be gone.`,
       );
-      console.log(`[super-session] asked ${agent.id.slice(0, 8)} to checkpoint before compacting`);
+      console.log(`[smart-session] asked ${agent.id.slice(0, 8)} to checkpoint before compacting`);
       continue;
     }
 
@@ -213,7 +213,7 @@ async function autopilot(agents: Iterable<AgentRow>, client: Parameters<typeof s
       reason: `context reached ${Math.round(pct)}% of the window and task state on disk is current`,
       statePath: statePathFor(agent.id),
     });
-    console.log(`[super-session] autopilot queued a compaction for ${agent.id.slice(0, 8)} at ${Math.round(pct)}%`);
+    console.log(`[smart-session] autopilot queued a compaction for ${agent.id.slice(0, 8)} at ${Math.round(pct)}%`);
   }
 }
 
@@ -271,7 +271,7 @@ async function flush(): Promise<void> {
           preTokens: agent.usedTokens,
           until: Date.now() + GRADE_WINDOW_MS,
         });
-        console.log(`[super-session] compacted ${item.agentId.slice(0, 8)} (${item.reason})`);
+        console.log(`[smart-session] compacted ${item.agentId.slice(0, 8)} (${item.reason})`);
       } catch (error) {
         await queue.update(item.id, {
           state: "failed",
@@ -293,7 +293,7 @@ function startGovernor(): void {
     try {
       await flush();
     } catch (error) {
-      console.error("[super-session] governor tick failed", String(error));
+      console.error("[smart-session] governor tick failed", String(error));
     } finally {
       running = false;
     }
@@ -302,9 +302,9 @@ function startGovernor(): void {
   void queue
     .recoverInterrupted()
     .then((count) => {
-      if (count > 0) console.error(`[super-session] failed ${count} compaction(s) interrupted by a restart`);
+      if (count > 0) console.error(`[smart-session] failed ${count} compaction(s) interrupted by a restart`);
     })
-    .catch((error: unknown) => console.error("[super-session] recovery failed", String(error)))
+    .catch((error: unknown) => console.error("[smart-session] recovery failed", String(error)))
     .then(tick);
 
   const timer = setInterval(() => void tick(), TICK_MS);

@@ -1,4 +1,4 @@
-# Super Session — plan
+# Smart Session — plan
 
 Two problems, one spine. Read `RESEARCH.md` first; every capability claim below is evidenced there.
 
@@ -47,7 +47,7 @@ Phase 1 is deliberately ~150 lines with no UI. Ship it before designing a single
          (sidebar stats, agent panel, composer pill)                       + hooks (context injection)
 ```
 
-Store: `$PASEO_HOME/plugin-data/super-session/`. Append-only JSONL, one line per *change* (not per
+Store: `$PASEO_HOME/plugin-data/smart-session/`. Append-only JSONL, one line per *change* (not per
 poll) — a day of 60s polling compresses to a few hundred lines. Roll monthly.
 
 **Isolate the brittle seam.** Borrowing the host's daemon client (the only route to
@@ -107,7 +107,7 @@ Build with the `dataviz` skill. Four views, in value order:
    subagent output that was discarded. This is where optimization decisions actually come from.
 
 Surfaces: a sidebar surface for the full stats view; a compact composer pill (`x% · resets 2h14m`)
-reusing the pill pattern `paseo-defer` already ships. A `super-session stats --week` CLI for the
+reusing the pill pattern `paseo-defer` already ships. A `smart-session stats --week` CLI for the
 terminal, because half this value is consumed outside the app.
 
 ---
@@ -267,7 +267,7 @@ Phases 1–3 and 4–7 are independent after Phase 1; 4 doesn't need 3.
 |---|---|
 | `usage.shared.ts` | normalize all three usage sources onto one id space; the freshness/acceptance gate |
 | `blocks.shared.ts` | segment samples into per-window blocks; burn rate; projected exhaustion |
-| `store.server.ts` | append-only JSONL logs under `$PASEO_HOME/plugin-data/super-session/` |
+| `store.server.ts` | append-only JSONL logs under `$PASEO_HOME/plugin-data/smart-session/` |
 | `daemon.server.ts` | borrowed Paseo daemon client: provider usage, agent context, send-to-agent |
 | `recorder.server.ts` | the sampler loop |
 | `growth.server.ts` | context growth rate per agent, measured from recorded history |

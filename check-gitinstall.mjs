@@ -38,7 +38,7 @@ function trackedFiles() {
   }
 }
 
-const staging = mkdtempSync(join(tmpdir(), "super-session-gitinstall-"));
+const staging = mkdtempSync(join(tmpdir(), "smart-session-gitinstall-"));
 try {
   const tracked = trackedFiles();
   const untracked = [];

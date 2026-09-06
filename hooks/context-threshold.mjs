@@ -58,7 +58,7 @@ function profileFor(maxTokens, thresholds) {
 
 function stateDir() {
   const home = process.env.PASEO_HOME ?? join(homedir(), ".paseo");
-  return join(home, "plugin-data", "super-session", "thresholds");
+  return join(home, "plugin-data", "smart-session", "thresholds");
 }
 
 /**
@@ -131,7 +131,7 @@ const SMALL_WINDOW = /haiku|-3-|sonnet-3|opus-3|sonnet-4-5|opus-4-5|sonnet-4-20|
  * the plugin, read from the tail of its log — and the model table is the fallback.
  */
 function windowFor(model) {
-  const override = Number(process.env.SUPER_SESSION_CONTEXT_WINDOW ?? "");
+  const override = Number(process.env.SMART_SESSION_CONTEXT_WINDOW ?? "");
   if (Number.isFinite(override) && override > 0) return override;
 
   const recorded = recordedWindow();
@@ -304,7 +304,7 @@ async function main() {
   latch.fired = [...new Set([...latch.fired, ...crossed])];
   writeLatch(latchPath, latch);
 
-  const statePath = process.env.SUPER_SESSION_STATE_FILE ?? statePathForAgent();
+  const statePath = process.env.SMART_SESSION_STATE_FILE ?? statePathForAgent();
   parts.push(advice(band, pct, reading.used, max, statePath));
   return emit(sessionId, parts, pending);
 }

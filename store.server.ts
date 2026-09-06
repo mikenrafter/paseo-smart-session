@@ -1,5 +1,5 @@
 /**
- * Append-only logs under `$PASEO_HOME/plugin-data/super-session/`.
+ * Append-only logs under `$PASEO_HOME/plugin-data/smart-session/`.
  *
  * Plan-usage history exists nowhere else — not in Claude Code, not in Paseo — so
  * these files are the only copy. That shapes every choice here: append rather than
@@ -7,17 +7,57 @@
  * back defensively so one corrupt line cannot cost a month of history.
  */
 
+import { existsSync, readdirSync, renameSync, rmdirSync } from "node:fs";
 import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { UsageSample } from "./usage.shared.ts";
 
+const DATA_DIRECTORY = "smart-session";
+const LEGACY_DATA_DIRECTORY = "super-session";
+const migratedHomes = new Set<string>();
+
+/**
+ * Move the pre-v0.2 data directory before any new file is opened.
+ *
+ * The two directories are siblings on the same filesystem, so rename is atomic.
+ * An empty destination can be left behind by an eager hook and is safe to remove;
+ * a non-empty destination is never merged because guessing between two histories
+ * would risk duplicating or overwriting the only plan-usage record.
+ */
+export function migrateLegacyData(home: string): void {
+  const parent = join(home, "plugin-data");
+  const legacy = join(parent, LEGACY_DATA_DIRECTORY);
+  const current = join(parent, DATA_DIRECTORY);
+  if (!existsSync(legacy)) return;
+
+  try {
+    if (existsSync(current)) {
+      if (readdirSync(current).length > 0) {
+        console.error(
+          `[smart-session] both ${legacy} and ${current} contain data; leaving both untouched`,
+        );
+        return;
+      }
+      rmdirSync(current);
+    }
+    renameSync(legacy, current);
+    console.log(`[smart-session] migrated plugin data from ${legacy} to ${current}`);
+  } catch (error) {
+    console.error(`[smart-session] could not migrate ${legacy} to ${current}`, String(error));
+  }
+}
+
 export function dataDir(): string {
   const home = process.env.PASEO_HOME ?? join(homedir(), ".paseo");
+  if (!migratedHomes.has(home)) {
+    migrateLegacyData(home);
+    migratedHomes.add(home);
+  }
   // A fixed folder name, deliberately decoupled from the install id: a second
   // install under `--id something-else` must not start a second history.
-  return join(home, "plugin-data", "super-session");
+  return join(home, "plugin-data", DATA_DIRECTORY);
 }
 
 /** A per-agent context-window reading. */
@@ -86,7 +126,7 @@ async function readLog<T>(kind: LogKind, sinceMs: number | null): Promise<T[]> {
     names = (await readdir(dataDir())).filter((name) => name.startsWith(`${kind}-`) && name.endsWith(".jsonl"));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.error("[super-session] could not list the data directory", String(error));
+      console.error("[smart-session] could not list the data directory", String(error));
     }
     return [];
   }
@@ -107,7 +147,7 @@ async function readLog<T>(kind: LogKind, sinceMs: number | null): Promise<T[]> {
     try {
       raw = await readFile(join(dataDir(), name), "utf8");
     } catch (error) {
-      console.error(`[super-session] could not read ${name}`, String(error));
+      console.error(`[smart-session] could not read ${name}`, String(error));
       continue;
     }
     for (const line of raw.split("\n")) {
@@ -119,7 +159,7 @@ async function readLog<T>(kind: LogKind, sinceMs: number | null): Promise<T[]> {
       }
     }
   }
-  if (skipped > 0) console.error(`[super-session] skipped ${skipped} unparseable line(s)`);
+  if (skipped > 0) console.error(`[smart-session] skipped ${skipped} unparseable line(s)`);
   return rows;
 }
 

@@ -195,7 +195,7 @@ export function buildOptions(entryPath, resolveDir, filteredSource, target) {
  * even in dev-only tooling that never reaches the daemon.
  */
 export function instantiateBundle(code, resolveModule) {
-  const directory = mkdtempSync(join(tmpdir(), "super-session-check-"));
+  const directory = mkdtempSync(join(tmpdir(), "smart-session-check-"));
   const file = join(directory, "bundle.cjs");
   writeFileSync(
     file,

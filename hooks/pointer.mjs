@@ -24,12 +24,12 @@ import { join } from "node:path";
 
 export function pluginDir() {
   const home = process.env.PASEO_HOME ?? join(homedir(), ".paseo");
-  return join(home, "plugin-data", "super-session");
+  return join(home, "plugin-data", "smart-session");
 }
 
 /** The same derivation the agent's `checkpoint` tool uses. */
 export function statePath() {
-  const override = process.env.SUPER_SESSION_STATE_FILE;
+  const override = process.env.SMART_SESSION_STATE_FILE;
   if (override !== undefined && override !== "") return override;
   const agentId = process.env.PASEO_AGENT_ID;
   if (agentId === undefined || agentId === "") return null;

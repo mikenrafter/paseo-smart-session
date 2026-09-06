@@ -125,7 +125,7 @@ async function pollClaudeJson(): Promise<void> {
     const sample = fromClaudeJson(parsed.cachedUsageUtilization);
     if (sample !== null) await record(sample);
   } catch (error) {
-    console.error("[super-session] could not read Claude's usage cache", String(error));
+    console.error("[smart-session] could not read Claude's usage cache", String(error));
   }
 }
 
@@ -142,10 +142,10 @@ async function pollSpend(): Promise<void> {
   try {
     const result = await scanSpend();
     if (result.messagesCounted > 0) {
-      console.log(`[super-session] folded ${result.messagesCounted} message(s) into the spend index`);
+      console.log(`[smart-session] folded ${result.messagesCounted} message(s) into the spend index`);
     }
   } catch (error) {
-    console.error("[super-session] spend scan failed", String(error));
+    console.error("[smart-session] spend scan failed", String(error));
   }
 }
 
@@ -165,13 +165,13 @@ async function pollUpstream(): Promise<void> {
     if (!authWarned) {
       authWarned = true;
       console.error(
-        "[super-session] Claude credentials are expired or unreadable; falling back to Paseo's cached usage, which can be up to five minutes old. Log in with the Claude CLI to restore direct readings.",
+        "[smart-session] Claude credentials are expired or unreadable; falling back to Paseo's cached usage, which can be up to five minutes old. Log in with the Claude CLI to restore direct readings.",
       );
     }
     return;
   }
   if (result.kind === "unavailable") {
-    console.error("[super-session] upstream usage unavailable", result.reason);
+    console.error("[smart-session] upstream usage unavailable", result.reason);
     return;
   }
 
@@ -235,7 +235,7 @@ function startRecorder(): void {
       // A daemon restart, a lost socket, a machine asleep — none of these should
       // end the recorder. The gap is visible in the data, which is the honest
       // outcome; a dead timer would not be.
-      console.error("[super-session] tick failed", String(error));
+      console.error("[smart-session] tick failed", String(error));
     } finally {
       running = false;
     }

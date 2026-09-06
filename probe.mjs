@@ -17,7 +17,7 @@ try {
       console.log(a.id.slice(0,8), a.status, JSON.stringify(a.lastUsage ?? null), (a.title ?? "").slice(0,40));
     }
   } else if (action === "rpc") {
-    console.log(JSON.stringify(await client.invokePluginRpc("super-session", agentId, JSON.parse(rest.join(" ") || "{}")), null, 1));
+    console.log(JSON.stringify(await client.invokePluginRpc("smart-session", agentId, JSON.parse(rest.join(" ") || "{}")), null, 1));
   } else if (action === "send") {
     const text = rest.join(" ");
     console.log("sending:", JSON.stringify(text));

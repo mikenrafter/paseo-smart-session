@@ -33,7 +33,7 @@ function loadDaemonClientModule(): DaemonClientModule {
     daemonClientModule = require(specifier) as DaemonClientModule;
   } catch (error) {
     throw new Error(
-      `This Paseo host does not expose its daemon client (${specifier}), which Super Session needs to read plan usage and agent context: ${
+      `This Paseo host does not expose its daemon client (${specifier}), which Smart Session needs to read plan usage and agent context: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -69,7 +69,7 @@ export async function withDaemon<T>(work: (client: DaemonClient) => Promise<T>):
   const { DaemonClient } = loadDaemonClientModule();
   const client = new DaemonClient({
     url: await resolveUrl(),
-    clientId: "paseo-super-session",
+    clientId: "paseo-smart-session",
     clientType: "cli",
     reconnect: { enabled: false },
     connectTimeoutMs: CONNECT_TIMEOUT_MS,

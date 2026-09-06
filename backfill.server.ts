@@ -73,7 +73,7 @@ function projectsRoot(): string {
  * exists so that stops mattering.
  */
 function tasksRoot(): string | null {
-  const override = process.env.SUPER_SESSION_TASKS_ROOT;
+  const override = process.env.SMART_SESSION_TASKS_ROOT;
   if (override !== undefined && override !== "") return override;
   const uid = typeof process.getuid === "function" ? process.getuid() : null;
   return uid === null ? null : join("/tmp", `claude-${uid}`);

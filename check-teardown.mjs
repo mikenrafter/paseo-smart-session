@@ -51,7 +51,7 @@ const built = await esbuild.build({
   logLevel: "silent",
 });
 
-const sandbox = mkdtempSync(join(tmpdir(), "super-session-teardown-"));
+const sandbox = mkdtempSync(join(tmpdir(), "smart-session-teardown-"));
 const bundlePath = join(sandbox, "bundle.cjs");
 const harnessPath = join(sandbox, "harness.cjs");
 writeFileSync(bundlePath, built.outputFiles[0].text);

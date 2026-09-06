@@ -2,8 +2,8 @@
 
 ## Project
 
-- This is the trusted, unsandboxed Paseo plugin `super-session` — note the id is `super-session`
-  while the repository and package are `paseo-super-session`. Minimum supported Paseo is 0.7.2.
+- This is the trusted, unsandboxed Paseo plugin `smart-session` — note the id is `smart-session`
+  while the repository and package are `paseo-smart-session`. Minimum supported Paseo is 0.7.2.
 - It is two halves in one daemon process: a **meter** that records plan-usage history, and a
   **governor** that reads each agent's context occupancy and compacts a session on request.
 - Check the current plugin docs at `https://paseo.sh/docs/plugins.md` and
@@ -16,7 +16,7 @@
 
 ## The data is the point
 
-- `$PASEO_HOME/plugin-data/super-session/` holds the only copy of plan-utilization history that
+- `$PASEO_HOME/plugin-data/smart-session/` holds the only copy of plan-utilization history that
   exists anywhere. `/usage` is a snapshot, Paseo's quota fetcher keeps no store, and Claude Code
   overwrites its cache in place — a percentage of a plan limit cannot be reconstructed after the
   fact. Append, never rewrite; one JSON line per observation; read back defensively so one corrupt
@@ -26,6 +26,8 @@
   recorder and a second governor over the same files.
 - Preserve the on-disk shapes: `usage-YYYY-MM.jsonl`, `context-YYYY-MM.jsonl`, `settings.json`,
   `enrolment.json`, `compactions.json`, `state/<agentId>.md`. Migrate rather than break them.
+- `store.server.ts` owns the one-time v0.1 `super-session` to `smart-session` directory migration.
+  The old name is allowed only in that migration, its regression tests, and upgrade documentation.
 
 ## Code boundaries
 
@@ -104,9 +106,9 @@ fail before believing it.
 ### 2. Load it
 
 ```sh
-paseo plugin reload super-session
+paseo plugin reload smart-session
 paseo plugin ls
-paseo plugin logs super-session | tail -20
+paseo plugin logs smart-session | tail -20
 ```
 
 Clean logs means no `[paseo]` error lines and no stack traces around the reload.
@@ -116,10 +118,10 @@ Clean logs means no `[paseo]` error lines and no stack traces around the reload.
 `probe.mjs` calls any plugin RPC without a UI, against the running daemon:
 
 ```sh
-node probe.mjs rpc super-session.budget '{}'
-node probe.mjs rpc super-session.context '{}'
-node probe.mjs rpc super-session.settings.get '{}'
-node probe.mjs rpc super-session.enrolment.state '{}'
+node probe.mjs rpc smart-session.budget '{}'
+node probe.mjs rpc smart-session.context '{}'
+node probe.mjs rpc smart-session.settings.get '{}'
+node probe.mjs rpc smart-session.enrolment.state '{}'
 node probe.mjs agents            # id, status and lastUsage for every agent
 ```
 
@@ -159,7 +161,7 @@ when you have not looked, and never describe a screenshot you did not take.
   considerations. Omit empty sections.
 - Before publishing, require a clean current `main`, verified GitHub ownership, passing checks, a
   successful plugin reload, clean logs, and a secret audit of the exact release snapshot.
-- Tag the exact release commit as `vX.Y.Z`; title the release `paseo-super-session vX.Y.Z`. After
+- Tag the exact release commit as `vX.Y.Z`; title the release `paseo-smart-session vX.Y.Z`. After
   publishing, test the public tag-pinned installer and the badge URLs.
 
 Never move or rewrite a published tag. Ship corrections as a new patch release.

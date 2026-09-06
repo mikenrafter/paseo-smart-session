@@ -1,8 +1,8 @@
-# paseo-super-session
+# paseo-smart-session
 
 [![Paseo](https://img.shields.io/badge/Paseo-%E2%89%A5%200.7.2-8A63D2?style=for-the-badge)](https://paseo.sh)
-[![Release](https://img.shields.io/github/v/release/tomgrin10/paseo-super-session?display_name=tag&sort=semver&style=for-the-badge&label=release&color=6366f1)](https://github.com/tomgrin10/paseo-super-session/releases/latest)
-[![License](https://img.shields.io/github/license/tomgrin10/paseo-super-session?style=for-the-badge&color=2563eb)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/tomgrin10/paseo-smart-session?display_name=tag&sort=semver&style=for-the-badge&label=release&color=6366f1)](https://github.com/tomgrin10/paseo-smart-session/releases/latest)
+[![License](https://img.shields.io/github/license/tomgrin10/paseo-smart-session?style=for-the-badge&color=2563eb)](LICENSE)
 
 A trusted local [Paseo](https://paseo.sh) plugin that records what your Claude plan usage actually
 did over time, and lets an agent notice how full its own context is and ask to be compacted.
@@ -22,24 +22,38 @@ Requires Paseo 0.7.2 or newer with plugins enabled — enable them in **Settings
 they are off.
 
 ```bash
-paseo plugin add tomgrin10/paseo-super-session
+paseo plugin add tomgrin10/paseo-smart-session
 ```
 
 That is the whole install for the daemon side: the recorder, the surface, the governor and the pill.
 Paseo clones the repository on the daemon machine, compiles it, and starts it — no package manager
-runs, and the plugin needs no installed dependencies. Pin a tag with `--ref v0.1.2`.
+runs, and the plugin needs no installed dependencies. Pin a tag with `--ref v0.2.0`.
 
-The plugin's id is `super-session`, so that is the name the rest of the commands take:
+The plugin's id is `smart-session`, so that is the name the rest of the commands take:
 
 ```bash
 paseo plugin ls                    # confirm it is running
-paseo plugin update super-session  # later, pull the newest version
-paseo plugin remove super-session
+paseo plugin update smart-session  # later, pull the newest version
+paseo plugin remove smart-session
 ```
+
+### Upgrading from Super Session
+
+The v0.2 rename changes the runtime id, so replace the old installation once:
+
+```bash
+paseo plugin remove super-session
+paseo plugin add tomgrin10/paseo-smart-session --ref v0.2.0
+```
+
+On first start, Smart Session atomically moves the existing
+`$PASEO_HOME/plugin-data/super-session/` directory to `plugin-data/smart-session/` before opening
+any files. Usage history, settings, enrolment, task state and compaction records carry over. Then
+replace the old Claude MCP registration and update the hook paths shown below.
 
 **The agent-facing side wants a checkout of its own.** The MCP server and the hooks are separate
 processes that Claude Code launches by absolute path, and a managed install lives under
-`$PASEO_HOME/plugins/super-session/<commit>-<uuid>/checkout`, which moves on every update — so any
+`$PASEO_HOME/plugins/smart-session/<commit>-<uuid>/checkout`, which moves on every update — so any
 path you register there breaks the next time you update. Clone the repository somewhere stable and
 point [the MCP server](#the-agent-facing-side) and [the hooks](#knowing-without-being-asked) at that
 copy. Both read the same files under `$PASEO_HOME`, so the two copies stay in agreement.
@@ -48,14 +62,14 @@ copy. Both read the same files under `$PASEO_HOME`, so the two copies stay in ag
 <summary>From a local checkout, for developing against it</summary>
 
 ```bash
-git clone https://github.com/tomgrin10/paseo-super-session.git
-cd paseo-super-session
+git clone https://github.com/tomgrin10/paseo-smart-session.git
+cd paseo-smart-session
 npm ci
 npm run verify
 paseo plugin install "$PWD"
 ```
 
-After editing the source, `npm run verify && paseo plugin reload super-session`. Never restart the
+After editing the source, `npm run verify && paseo plugin reload smart-session`. Never restart the
 daemon to pick up a change: that kills every running agent, and a reload is enough.
 
 </details>
@@ -67,7 +81,7 @@ after cleanup — a leaked timer wedges plugin reload for the life of the daemon
 
 ## What it records
 
-`$PASEO_HOME/plugin-data/super-session/` (default `~/.paseo/plugin-data/super-session/`):
+`$PASEO_HOME/plugin-data/smart-session/` (default `~/.paseo/plugin-data/smart-session/`):
 
 | File | One line per |
 |---|---|
@@ -121,14 +135,14 @@ work, so they are not offered — a tool that exists and always fails is worse t
 `budget_status` needs no session identity and stays available everywhere.
 
 ```bash
-claude mcp add super-session --scope user -- node /path/to/paseo-super-session/mcp.mjs
+claude mcp add smart-session --scope user -- node /path/to/paseo-smart-session/mcp.mjs
 ```
 
 | Where | Tools offered |
 |---|---|
 | Inside a Paseo agent | all four |
 | Any other Claude Code session | `budget_status` only |
-| Any other session, with `SUPER_SESSION_MCP_SCOPE=paseo` | none |
+| Any other session, with `SMART_SESSION_MCP_SCOPE=paseo` | none |
 
 This costs nothing outside Paseo: Claude Code defers MCP tool loading, so tools appear as bare names
 until something asks for a schema, and a server that lists nothing contributes nothing to the prompt.
@@ -152,7 +166,7 @@ exec /Users/you/.local/bin/claude "$@" --mcp-config /Users/you/.paseo/paseo-mcp.
 ```
 
 This needs a daemon restart, which interrupts every running agent — so it is worth doing only if the
-`tools/list` gate above is not enough. Check `/mcp` afterwards lists both `super-session` and Paseo's
+`tools/list` gate above is not enough. Check `/mcp` afterwards lists both `smart-session` and Paseo's
 own `paseo` server: Paseo already passes one `--mcp-config`, and whether a second occurrence
 accumulates or replaces is untested.
 
@@ -196,18 +210,18 @@ A large window is asked to compact long before the ceiling, because the ceiling 
 constraint. A small window is allowed to fill, because its ceiling arrives before its context gets
 unwieldy.
 
-Edit them in `$PASEO_HOME/plugin-data/super-session/settings.json`; the hook, the agent-facing tools
-and autopilot all read that one file. `SUPER_SESSION_CONTEXT_WINDOW` overrides the assumed window
-size for a session, and `SUPER_SESSION_STATE_FILE` overrides where the state file lives.
+Edit them in `$PASEO_HOME/plugin-data/smart-session/settings.json`; the hook, the agent-facing tools
+and autopilot all read that one file. `SMART_SESSION_CONTEXT_WINDOW` overrides the assumed window
+size for a session, and `SMART_SESSION_STATE_FILE` overrides where the state file lives.
 
 Install the hooks by adding to `~/.claude/settings.json`:
 
 ```jsonc
 "hooks": {
-  "PostToolUse":  [{ "matcher": "", "hooks": [{ "type": "command", "command": "node /path/to/paseo-super-session/hooks/context-threshold.mjs", "timeout": 10 }] }],
-  "PostCompact":  [{ "matcher": "", "hooks": [{ "type": "command", "command": "node /path/to/paseo-super-session/hooks/post-compact.mjs", "timeout": 10 }] }],
+  "PostToolUse":  [{ "matcher": "", "hooks": [{ "type": "command", "command": "node /path/to/paseo-smart-session/hooks/context-threshold.mjs", "timeout": 10 }] }],
+  "PostCompact":  [{ "matcher": "", "hooks": [{ "type": "command", "command": "node /path/to/paseo-smart-session/hooks/post-compact.mjs", "timeout": 10 }] }],
   // Same script, second event — this is the one that can actually inject.
-  "SessionStart": [{ "matcher": "compact", "hooks": [{ "type": "command", "command": "node /path/to/paseo-super-session/hooks/post-compact.mjs", "timeout": 10 }] }]
+  "SessionStart": [{ "matcher": "compact", "hooks": [{ "type": "command", "command": "node /path/to/paseo-smart-session/hooks/post-compact.mjs", "timeout": 10 }] }]
 }
 ```
 
