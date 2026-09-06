@@ -1,0 +1,71 @@
+/**
+ * Context growth, measured from recorded history.
+ *
+ * Lives in its own `*.server` module rather than in index.ts: Paseo strips server
+ * imports from the client bundle but keeps the surrounding statements, so a helper
+ * *declared* in the entry point's shared body would survive there with its import
+ * deleted — a ReferenceError on load that silently drops every contribution.
+ * Referenced only from inside `plugin.handle(...)` bodies, which are removed whole.
+ */
+
+import { readContext } from "./store.server.ts";
+import { profileFor, type Thresholds } from "./thresholds.shared.ts";
+
+/**
+ * How fast each agent's context is filling, in tokens per hour.
+ *
+ * Measured from what the recorder has actually seen rather than from the agent's
+ * own bookkeeping: a rate is only meaningful over a span, and the span has to come
+ * from somewhere that survives the turn.
+ */
+export async function contextGrowth(): Promise<Map<string, number>> {
+  const MEASURE_MS = 2 * 60 * 60 * 1000;
+  const MIN_SPAN_MS = 5 * 60 * 1000;
+  const rows = await readContext({ sinceMs: Date.now() - MEASURE_MS });
+
+  const byAgent = new Map<string, { firstAt: number; firstTokens: number; lastAt: number; lastTokens: number }>();
+  for (const row of rows) {
+    const at = Date.parse(row.at);
+    const seen = byAgent.get(row.agentId);
+    if (seen === undefined) {
+      byAgent.set(row.agentId, { firstAt: at, firstTokens: row.usedTokens, lastAt: at, lastTokens: row.usedTokens });
+      continue;
+    }
+    // A compaction resets the baseline: growth measured across one would be
+    // negative and meaningless, so start again from the drop.
+    if (row.usedTokens < seen.lastTokens) {
+      byAgent.set(row.agentId, { firstAt: at, firstTokens: row.usedTokens, lastAt: at, lastTokens: row.usedTokens });
+      continue;
+    }
+    seen.lastAt = at;
+    seen.lastTokens = row.usedTokens;
+  }
+
+  const rates = new Map<string, number>();
+  for (const [agentId, span] of byAgent) {
+    const ms = span.lastAt - span.firstAt;
+    if (ms < MIN_SPAN_MS) continue;
+    rates.set(agentId, ((span.lastTokens - span.firstTokens) / ms) * 3_600_000);
+  }
+  return rates;
+}
+
+/**
+ * When an agent's context would reach the point where compacting is the right call.
+ *
+ * Aimed at the window's own compact band, not at its ceiling: on a large window the
+ * ceiling is never what bites first, so projecting to 100% would forecast a moment
+ * nobody should ever reach.
+ */
+export function projectFull(
+  usedTokens: number,
+  maxTokens: number,
+  ratePerHour: number | null,
+  thresholds?: Thresholds,
+): string | null {
+  if (ratePerHour === null || ratePerHour <= 0) return null;
+  const room = maxTokens * (profileFor(maxTokens, thresholds).compact / 100) - usedTokens;
+  if (room <= 0) return new Date().toISOString();
+  return new Date(Date.now() + (room / ratePerHour) * 3_600_000).toISOString();
+}
+

@@ -1,0 +1,349 @@
+import { Icon, type PluginSurfaceProps, useRpc } from "@getpaseo/plugin";
+import { useToast } from "@getpaseo/plugin/react-native";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import React from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
+
+import { DailyBars, HourHeatmap, RankedTotals } from "./charts.client";
+import { refreshPills } from "./pill.client";
+import { enrolmentState } from "./governor.shared";
+import { formatRelative, formatTokens, isInteresting, windowLabel } from "./format.shared";
+import { budgetStatus, contextStatus, getSettings, setSettings, spendSummary } from "./supersession.shared";
+
+type Theme = PluginSurfaceProps["theme"];
+
+/** Green under two thirds, amber past it, red once there is little room left. */
+function toneFor(theme: Theme, pct: number): string {
+  if (pct >= 90) return theme.colors.statusDanger;
+  if (pct >= 66) return theme.colors.statusWarning;
+  return theme.colors.accent;
+}
+
+function Bar({ theme, pct }: { theme: Theme; pct: number }) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  return (
+    <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surface2, overflow: "hidden" }}>
+      <View style={{ width: `${clamped}%`, height: 6, backgroundColor: toneFor(theme, clamped) }} />
+    </View>
+  );
+}
+
+function Row({
+  theme,
+  title,
+  detail,
+  pct,
+  trailing,
+}: {
+  theme: Theme;
+  title: string;
+  detail: string;
+  pct: number;
+  trailing: string;
+}) {
+  return (
+    <View style={{ gap: 6, paddingVertical: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
+        <Text style={{ color: theme.colors.foreground, fontWeight: "600", flexGrow: 1 }}>{title}</Text>
+        <Text style={{ color: toneFor(theme, pct), fontVariant: ["tabular-nums"] }}>{trailing}</Text>
+      </View>
+      <Bar theme={theme} pct={pct} />
+      <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{detail}</Text>
+    </View>
+  );
+}
+
+function Section({ theme, title, children }: { theme: Theme; title: string; children: React.ReactNode }) {
+  return (
+    <View style={{ gap: 2 }}>
+      <Text
+        style={{
+          color: theme.colors.foregroundMuted,
+          fontSize: 11,
+          letterSpacing: 1,
+          textTransform: "uppercase",
+          marginBottom: 4,
+        }}
+      >
+        {title}
+      </Text>
+      {children}
+    </View>
+  );
+}
+
+function Toggle({
+  theme,
+  on,
+  label,
+  detail,
+  onPress,
+}: {
+  theme: Theme;
+  on: boolean;
+  label: string;
+  detail: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        backgroundColor: theme.colors.surface1,
+      }}
+    >
+      <View
+        style={{
+          width: 36,
+          height: 20,
+          borderRadius: 10,
+          padding: 2,
+          backgroundColor: on ? theme.colors.accent : theme.colors.surface2,
+          justifyContent: "center",
+          alignItems: on ? "flex-end" : "flex-start",
+        }}
+      >
+        <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: theme.colors.accentForeground }} />
+      </View>
+      <View style={{ flexShrink: 1, gap: 2 }}>
+        <Text style={{ color: theme.colors.foreground, fontWeight: "600" }}>{label}</Text>
+        <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{detail}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+export function SuperSessionSurface({ theme, layout }: PluginSurfaceProps) {
+  const budget = useRpc(budgetStatus);
+  const context = useRpc(contextStatus);
+  const spend = useRpc(spendSummary);
+  const readSettings = useRpc(getSettings);
+  const writeSettings = useRpc(setSettings);
+  const readEnrolment = useRpc(enrolmentState);
+  const toast = useToast();
+  const queryClient = useQueryClient();
+
+  // The daemon serves usage from a five-minute cache, so polling it harder than
+  // the recorder does would only redraw the same number.
+  const budgetQuery = useQuery({ queryKey: ["super-session", "budget"], queryFn: () => budget({}), refetchInterval: 30_000 });
+  const contextQuery = useQuery({
+    queryKey: ["super-session", "context"],
+    queryFn: () => context({}),
+    refetchInterval: 15_000,
+  });
+
+  // Reconstructed from transcripts, which only change when an agent writes a turn.
+  const spendQuery = useQuery({
+    queryKey: ["super-session", "spend"],
+    queryFn: () => spend({ days: 30 }),
+    refetchInterval: 5 * 60_000,
+  });
+
+  const settingsQuery = useQuery({
+    queryKey: ["super-session", "settings"],
+    queryFn: () => readSettings({}),
+    refetchInterval: 60_000,
+  });
+
+  const settings = settingsQuery.data?.settings;
+  const enrolled = settingsQuery.data?.enrolledAgents ?? 0;
+
+  function toggleAutopilot() {
+    if (settings === undefined) return;
+    const next = !settings.autopilot;
+    void writeSettings({ autopilot: next })
+      .then(() => {
+        toast.show(next ? "Autopilot on" : "Autopilot off");
+        return queryClient.invalidateQueries({ queryKey: ["super-session", "settings"] });
+      })
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
+  }
+
+  function togglePill() {
+    if (settings === undefined) return;
+    const next = !settings.showPill;
+    void writeSettings({ showPill: next })
+      // The pills live in this same client bundle, so they can be told directly
+      // rather than waiting out their own refresh interval.
+      .then(() => refreshPills(() => readEnrolment({})))
+      .then(() => {
+        toast.show(next ? "Pill shown on every agent" : "Pill hidden");
+        return queryClient.invalidateQueries({ queryKey: ["super-session", "settings"] });
+      })
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
+  }
+
+  const padding = layout.compact ? 12 : 20;
+  const windows = (budgetQuery.data?.windows ?? []).filter(isInteresting);
+  const agents = contextQuery.data?.agents ?? [];
+  const recorder = budgetQuery.data?.recorder;
+  const summary = spendQuery.data?.summary;
+  const error = budgetQuery.data?.error ?? contextQuery.data?.error ?? null;
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface0 }} contentContainerStyle={{ padding, gap: 24 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Icon name="Gauge" size={18} color={theme.colors.foreground} />
+        <Text style={{ color: theme.colors.foreground, fontSize: 18, fontWeight: "700" }}>Super Session</Text>
+      </View>
+
+      {error !== null ? (
+        <Text style={{ color: theme.colors.statusDanger }}>{error}</Text>
+      ) : null}
+
+      <Section theme={theme} title="Plan limits">
+        {windows.length === 0 ? (
+          <Text style={{ color: theme.colors.foregroundMuted }}>
+            No reading yet. The recorder samples every minute.
+          </Text>
+        ) : (
+          windows.map((window) => (
+            <Row
+              key={window.id}
+              theme={theme}
+              title={windowLabel(window.id)}
+              pct={window.pct}
+              trailing={`${Math.round(window.pct)}%`}
+              detail={[
+                window.resetsAt === null ? null : `resets ${formatRelative(window.resetsAt)}`,
+                window.burnPctPerHour === null || window.burnPctPerHour <= 0
+                  ? null
+                  : `${window.burnPctPerHour.toFixed(1)}%/h`,
+                window.projectedFullAt === null ? null : `full ${formatRelative(window.projectedFullAt)}`,
+              ]
+                .filter((part) => part !== null)
+                .join(" · ")}
+            />
+          ))
+        )}
+      </Section>
+
+      <Section theme={theme} title="Agent context">
+        {agents.length === 0 ? (
+          <Text style={{ color: theme.colors.foregroundMuted }}>No agent has reported a turn yet.</Text>
+        ) : (
+          agents.map((agent) => (
+            <Row
+              key={agent.agentId}
+              theme={theme}
+              title={agent.title ?? agent.agentId.slice(0, 8)}
+              pct={agent.usedPct}
+              trailing={`${agent.usedPct.toFixed(1)}%`}
+              detail={`${formatTokens(agent.usedTokens)} / ${formatTokens(agent.maxTokens)} · compact at ${
+                agent.compactAtPct
+              }% · ${agent.status}${agent.model === null ? "" : ` · ${agent.model}`}`}
+            />
+          ))
+        )}
+      </Section>
+
+      {summary === undefined || summary.bucketCount === 0 ? null : (
+        <Section theme={theme} title="Where the tokens went">
+          <View style={{ flexDirection: "row", gap: 24, marginBottom: 12, flexWrap: "wrap" }}>
+            <View>
+              <Text style={{ color: theme.colors.foreground, fontSize: 22, fontWeight: "700" }}>
+                {formatTokens(summary.totalTokens)}
+              </Text>
+              <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>
+                billable tokens, last 30 days
+              </Text>
+            </View>
+            <View>
+              <Text style={{ color: theme.colors.foreground, fontSize: 22, fontWeight: "700" }}>
+                {Math.round(summary.cacheHitPct)}%
+              </Text>
+              <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>served from cache</Text>
+            </View>
+            {summary.subagentTokens === 0 ? null : (
+              <View>
+                <Text style={{ color: theme.colors.foreground, fontSize: 22, fontWeight: "700" }}>
+                  {formatTokens(summary.subagentTokens)}
+                </Text>
+                <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>from subagents</Text>
+              </View>
+            )}
+          </View>
+
+          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, marginBottom: 6 }}>Tokens per day</Text>
+          <DailyBars theme={theme} days={summary.byDay.slice(-30)} compact={layout.compact} />
+
+          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, marginTop: 16, marginBottom: 6 }}>
+            Tokens by hour of the week
+          </Text>
+          <HourHeatmap theme={theme} cells={summary.heatmap} compact={layout.compact} />
+
+          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, marginTop: 16, marginBottom: 6 }}>
+            By workspace
+          </Text>
+          <RankedTotals theme={theme} rows={summary.byProject} total={summary.totalTokens} />
+
+          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12, marginTop: 12, marginBottom: 6 }}>
+            By model
+          </Text>
+          <RankedTotals theme={theme} rows={summary.byModel} total={summary.totalTokens} />
+        </Section>
+      )}
+
+      {settings === undefined ? null : (
+        <Section theme={theme} title="Governor">
+          <Toggle
+            theme={theme}
+            on={settings.autopilot}
+            label="Compact automatically"
+            detail={
+              settings.autopilot
+                ? `At ${settings.thresholds.large.compact}% of a large window or ${settings.thresholds.small.compact}% of a small one, once the session is idle and its task state on disk is current. ${enrolled} session${
+                    enrolled === 1 ? "" : "s"
+                  } enrolled.`
+                : `Off. Agents can still ask to be compacted themselves. ${enrolled} session${
+                    enrolled === 1 ? " has" : "s have"
+                  } written task state.`
+            }
+            onPress={toggleAutopilot}
+          />
+          <View style={{ marginTop: 8 }}>
+            <Toggle
+              theme={theme}
+              on={settings.showPill}
+              label="Show the pill on every agent"
+              detail="Puts the auto-compact state on each composer, where pressing it enrols that session or takes it out."
+              onPress={togglePill}
+            />
+          </View>
+          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, marginTop: 6 }}>
+            A session enrols by using the checkpoint tool, or by its pill. Either way, one that has
+            never enrolled is never steered.
+          </Text>
+          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, marginTop: 4 }}>
+            {`Compact at ${settings.thresholds.large.compact}% of a ${formatTokens(settings.thresholds.largeWindowFrom)}+ window (${formatTokens(
+              Math.round((settings.thresholds.large.compact / 100) * 1_000_000),
+            )} tokens on a 1M session), or ${settings.thresholds.small.compact}% of a smaller one. What tires a context is its absolute size, not its share of the window.`}
+          </Text>
+        </Section>
+      )}
+
+      {recorder === undefined ? null : (
+        <Section theme={theme} title="Recorder">
+          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>
+            {recorder.newestAt === null
+              ? "Nothing recorded yet."
+              : `Newest reading ${formatRelative(recorder.newestAt)} from ${recorder.source ?? "?"} · ${
+                  recorder.samplesHeld
+                } samples held${
+                  recorder.firstSampleAt === null ? "" : ` since ${formatRelative(recorder.firstSampleAt)}`
+                }`}
+          </Text>
+          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>{recorder.dataDir}</Text>
+        </Section>
+      )}
+    </ScrollView>
+  );
+}
