@@ -27,7 +27,7 @@ paseo plugin add tomgrin10/paseo-super-session
 
 That is the whole install for the daemon side: the recorder, the surface, the governor and the pill.
 Paseo clones the repository on the daemon machine, compiles it, and starts it — no package manager
-runs, and the plugin needs no installed dependencies. Pin a tag with `--ref v0.1.0`.
+runs, and the plugin needs no installed dependencies. Pin a tag with `--ref v0.1.1`.
 
 The plugin's id is `super-session`, so that is the name the rest of the commands take:
 
