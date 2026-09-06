@@ -89,7 +89,7 @@ export const SettingsSchema = z.object({
   autopilot: z.boolean(),
   thresholds: ThresholdsSchema,
   freshStateMinutes: z.number(),
-  /** Whether every agent's composer carries the auto-compact pill. */
+  /** Whether every agent's composer carries the smart-compact pill. */
   showPill: z.boolean(),
 });
 

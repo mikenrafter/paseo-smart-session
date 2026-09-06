@@ -314,7 +314,7 @@ export function SuperSessionSurface({ theme, layout }: PluginSurfaceProps) {
               theme={theme}
               on={settings.showPill}
               label="Show the pill on every agent"
-              detail="Puts the auto-compact state on each composer, where pressing it enrols that session or takes it out."
+              detail="Puts the smart-compact state on each composer, where pressing it enrols that session or takes it out."
               onPress={togglePill}
             />
           </View>

@@ -1,5 +1,5 @@
 /**
- * The auto-compact pill, on every agent's composer.
+ * The smart-compact pill, on every agent's composer.
  *
  * Enrolment is a file on disk, which makes it invisible: there was no way to look
  * at a session and tell whether the governor was watching it. The pill is that
@@ -16,7 +16,7 @@ import { Icon, type PluginClientContext, type PluginComposerPillProps } from "@g
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
 
-import { autoCompactLabel } from "./format.shared";
+import { smartCompactLabel } from "./format.shared";
 import { enrolmentState, setEnrolment, type EnrolmentState } from "./governor.shared";
 
 /** How often the client re-reads enrolment, for changes made somewhere else. */
@@ -167,7 +167,7 @@ export function AutoCompactPill({ theme, agentId }: PluginComposerPillProps) {
           }}
         >
           <Text numberOfLines={1} style={{ color: theme.colors.foreground, fontSize: 13 }}>
-            {autoCompactLabel({ enrolled, autopilot: current.autopilot })}
+            {smartCompactLabel({ enrolled, autopilot: current.autopilot })}
           </Text>
           <Text numberOfLines={1} style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>
             {enrolled ? "Press to take this session out" : "Press to enrol this session"}
@@ -189,8 +189,8 @@ export function contributeClient(client: PluginClientContext) {
 
   function register(agentId: string, entry: { workspaceId: string; remove: (() => void) | null }): void {
     entry.remove = client.addComposerPill({
-      id: "auto-compact",
-      title: "Auto-compact",
+      id: "smart-compact",
+      title: "Smart compact",
       workspaceId: entry.workspaceId,
       agentId,
       Component: AutoCompactPill,

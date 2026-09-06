@@ -27,7 +27,7 @@ paseo plugin add tomgrin10/paseo-super-session
 
 That is the whole install for the daemon side: the recorder, the surface, the governor and the pill.
 Paseo clones the repository on the daemon machine, compiles it, and starts it — no package manager
-runs, and the plugin needs no installed dependencies. Pin a tag with `--ref v0.1.1`.
+runs, and the plugin needs no installed dependencies. Pin a tag with `--ref v0.1.2`.
 
 The plugin's id is `super-session`, so that is the name the rest of the commands take:
 
@@ -244,14 +244,18 @@ Enrolment used to be a file on disk and nothing else, so there was no way to loo
 tell whether the governor was watching it. Every agent's composer now carries a pill that says, and
 pressing it changes the answer.
 
+It is called **Smart compact**, not auto-compact: Claude Code already ships a feature by that name
+which fires on its own thresholds, and this is a different thing — it compacts at a turn boundary,
+against the band for that window size, with instructions and a state file behind it.
+
 It is one icon. The composer track is a single line shared with Paseo's own pills, so the state is
 carried by colour and spelled out on hover:
 
 | Icon | Tooltip | Means |
 | --- | --- | --- |
-| Accent | **Auto-compact on** | Enrolled, autopilot armed. This session will be compacted when it fills. |
-| Amber | **Auto-compact paused** | Enrolled, but autopilot is off globally, so nothing will happen. |
-| Muted | **Auto-compact off** | Not enrolled. |
+| Accent | **Smart compact on** | Enrolled, autopilot armed. This session will be compacted when it fills. |
+| Amber | **Smart compact paused** | Enrolled, but autopilot is off globally, so nothing will happen. |
+| Muted | **Smart compact off** | Not enrolled. |
 
 The tooltip also says what a press will do. Touch platforms have no hover and read the colour.
 
@@ -260,7 +264,7 @@ inferred one — so a checkpointing session can be taken out, and one that has n
 be put in. Enrolling an agent with no state file does not compact it blind: the governor asks it to
 checkpoint first and compacts on a later tick, exactly as it does for a stale one.
 
-Hide the pill from the Command Center — *Show or hide the auto-compact pill* — or from the toggle in
+Hide the pill from the Command Center — *Show or hide the smart-compact pill* — or from the toggle in
 the plugin's own surface. Hiding it changes nothing about who is enrolled.
 
 ## Why compaction has to be steered

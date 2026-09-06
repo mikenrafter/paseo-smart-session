@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { autoCompactLabel } from "./format.shared.ts";
+import { smartCompactLabel } from "./format.shared.ts";
 
 /**
  * A fresh, isolated `$PASEO_HOME`, then a fresh copy of the module under test.
@@ -98,8 +98,8 @@ test("a corrupt overrides file costs the overrides, not the plugin", async () =>
 });
 
 test("the pill tells enrolled-but-nothing-will-happen from enrolled", () => {
-  assert.equal(autoCompactLabel({ enrolled: true, autopilot: true }), "Auto-compact on");
+  assert.equal(smartCompactLabel({ enrolled: true, autopilot: true }), "Smart compact on");
   // Enrolled while autopilot is off globally: still nothing is going to compact it.
-  assert.equal(autoCompactLabel({ enrolled: true, autopilot: false }), "Auto-compact paused");
-  assert.equal(autoCompactLabel({ enrolled: false, autopilot: true }), "Auto-compact off");
+  assert.equal(smartCompactLabel({ enrolled: true, autopilot: false }), "Smart compact paused");
+  assert.equal(smartCompactLabel({ enrolled: false, autopilot: true }), "Smart compact off");
 });

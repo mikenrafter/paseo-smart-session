@@ -181,7 +181,7 @@ export default function contribute(plugin: PluginContext) {
 
   plugin.addCommandCenterItem({
     id: "super-session-pill",
-    title: "Show or hide the auto-compact pill",
+    title: "Show or hide the smart-compact pill",
     icon: "ToggleLeft",
     keywords: ["pill", "compact", "autopilot", "governor", "enrol"],
     context: "global",

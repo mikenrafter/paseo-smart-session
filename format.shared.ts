@@ -69,11 +69,15 @@ export function rampStep(value: number, max: number, steps: number): number {
 /**
  * What the composer pill says about one agent.
  *
- * Three states, not two. An enrolled agent is still not going to be compacted
- * while autopilot is off globally, and a pill that said "on" there would be
- * telling the user something that is not true.
+ * "Smart compact" rather than "auto-compact": Claude Code already ships a feature
+ * by the latter name that fires on its own thresholds, and a pill that borrowed the
+ * name would read as a switch for that.
+ *
+ * Three states, not two. An enrolled agent is still not going to be compacted while
+ * autopilot is off globally, and a pill that said "on" there would be telling the
+ * user something that is not true.
  */
-export function autoCompactLabel(input: { enrolled: boolean; autopilot: boolean }): string {
-  if (!input.enrolled) return "Auto-compact off";
-  return input.autopilot ? "Auto-compact on" : "Auto-compact paused";
+export function smartCompactLabel(input: { enrolled: boolean; autopilot: boolean }): string {
+  if (!input.enrolled) return "Smart compact off";
+  return input.autopilot ? "Smart compact on" : "Smart compact paused";
 }

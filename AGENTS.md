@@ -67,6 +67,10 @@
   pill that grew on hover would shove Paseo's own pills along.
 - Command Center and sidebar icons go through Paseo's `resolvePluginIcon`, which **throws** on an
   unknown Lucide name and takes the whole contribution with it. Verify a name exists before using it.
+- User-facing copy calls this **Smart compact**, never "auto-compact". Claude Code ships a feature by
+  that name with its own thresholds, and borrowing it makes the pill read as a switch for that one.
+  `RESEARCH.md` §4.1 and `PLAN.md` do mean Claude Code's feature when they say auto-compact; leave
+  those alone.
 - Autopilot is off by default and stays that way. A compaction fired at the wrong moment is worse
   than one that never fires: deliver only at a turn boundary, only when task state on disk is
   current, and never retry an interrupted `/compact` — it is destructive and not idempotent.

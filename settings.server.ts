@@ -31,7 +31,7 @@ export interface Settings {
   /** A state file older than this is treated as not describing the current work. */
   readonly freshStateMinutes: number;
   /**
-   * Whether every agent's composer carries the auto-compact pill.
+   * Whether every agent's composer carries the smart-compact pill.
    *
    * On by default. Enrolment is otherwise invisible — it is a file on disk — and a
    * governor you cannot see the state of is one you stop trusting.
