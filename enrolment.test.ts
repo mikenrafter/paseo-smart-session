@@ -97,9 +97,37 @@ test("a corrupt overrides file costs the overrides, not the plugin", async () =>
   ]);
 });
 
-test("the pill tells enrolled-but-nothing-will-happen from enrolled", () => {
-  assert.equal(smartCompactLabel({ enrolled: true, autopilot: true }), "Smart compact on");
-  // Enrolled while autopilot is off globally: still nothing is going to compact it.
-  assert.equal(smartCompactLabel({ enrolled: true, autopilot: false }), "Smart compact paused");
-  assert.equal(smartCompactLabel({ enrolled: false, autopilot: true }), "Smart compact off");
+test("the pill says on or off, and nothing in between", () => {
+  // There is no third state. A global switch that made an enrolled session inert
+  // used to need one; the master switch hides the pill outright instead.
+  assert.equal(smartCompactLabel({ enrolled: true }), "Smart compact on");
+  assert.equal(smartCompactLabel({ enrolled: false }), "Smart compact off");
+});
+
+test("turning off automatic enrolment drops the inferred ones, not the explicit", async () => {
+  const { settings, checkpoint } = await withHome();
+  checkpoint("inferred");
+  await settings.setEnrolled("chosen", true);
+  assert.equal(await settings.countEnrolled(), 2);
+
+  // This is the opt-in half of the setting: checkpointing stops being consent, so
+  // only the session someone actually enrolled is left.
+  await settings.writeSettings({ autoEnrol: false });
+  assert.deepEqual(await settings.listEnrolment(), [
+    { agentId: "chosen", enrolled: true, explicit: true },
+  ]);
+});
+
+test("an install written before the master switch existed comes up switched on", async () => {
+  // Every settings.json from v0.2 has `autopilot` and no `enabled`. Reading that as
+  // off would silently disable the feature for everyone upgrading into it.
+  const { settings, home } = await withHome();
+  writeFileSync(
+    join(home, "plugin-data", "smart-session", "settings.json"),
+    JSON.stringify({ autopilot: false, showPill: true, freshStateMinutes: 30 }),
+    "utf8",
+  );
+  const read = await settings.readSettings();
+  assert.equal(read.enabled, true);
+  assert.equal(read.autoEnrol, true);
 });

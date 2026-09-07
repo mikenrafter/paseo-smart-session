@@ -8,7 +8,14 @@ import { DailyBars, HourHeatmap, RankedTotals } from "./charts.client";
 import { refreshPills } from "./pill.client";
 import { enrolmentState } from "./governor.shared";
 import { formatRelative, formatTokens, isInteresting, windowLabel } from "./format.shared";
-import { budgetStatus, contextStatus, getSettings, setSettings, spendSummary } from "./smart-session.shared";
+import {
+  budgetStatus,
+  contextStatus,
+  getSettings,
+  installStatus,
+  setSettings,
+  spendSummary,
+} from "./smart-session.shared";
 
 type Theme = PluginSurfaceProps["theme"];
 
@@ -72,22 +79,33 @@ function Section({ theme, title, children }: { theme: Theme; title: string; chil
   );
 }
 
+/**
+ * A switch, and the one thing it controls.
+ *
+ * `disabled` is for the options that only mean something while Smart compact is on.
+ * They stay visible and keep showing their own value — hiding them would make the
+ * master switch look like it had erased them — but they dim and stop responding,
+ * which is what says "this one depends on the one above".
+ */
 function Toggle({
   theme,
   on,
   label,
   detail,
   onPress,
+  disabled = false,
 }: {
   theme: Theme;
   on: boolean;
   label: string;
   detail: string;
   onPress: () => void;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
       style={{
         flexDirection: "row",
         alignItems: "center",
@@ -98,6 +116,7 @@ function Toggle({
         borderWidth: 1,
         borderColor: theme.colors.border,
         backgroundColor: theme.colors.surface1,
+        opacity: disabled ? 0.45 : 1,
       }}
     >
       <View
@@ -128,6 +147,7 @@ export function SmartSessionSurface({ theme, layout }: PluginSurfaceProps) {
   const readSettings = useRpc(getSettings);
   const writeSettings = useRpc(setSettings);
   const readEnrolment = useRpc(enrolmentState);
+  const readInstall = useRpc(installStatus);
   const toast = useToast();
   const queryClient = useQueryClient();
 
@@ -153,15 +173,54 @@ export function SmartSessionSurface({ theme, layout }: PluginSurfaceProps) {
     refetchInterval: 60_000,
   });
 
+  // Cheap on every call after the first: with nothing to reconcile it reads two
+  // files and writes none.
+  const installQuery = useQuery({
+    queryKey: ["smart-session", "install"],
+    queryFn: () => readInstall({}),
+    refetchInterval: 5 * 60_000,
+  });
+
   const settings = settingsQuery.data?.settings;
   const enrolled = settingsQuery.data?.enrolledAgents ?? 0;
+  const install = installQuery.data?.report;
 
-  function toggleAutopilot() {
+  function toggleInstallHooks() {
     if (settings === undefined) return;
-    const next = !settings.autopilot;
-    void writeSettings({ autopilot: next })
+    const next = !settings.installHooks;
+    void writeSettings({ installHooks: next })
       .then(() => {
-        toast.show(next ? "Autopilot on" : "Autopilot off");
+        toast.show(next ? "Hooks registered with Claude Code" : "Hooks removed from Claude Code");
+        return Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["smart-session", "settings"] }),
+          queryClient.invalidateQueries({ queryKey: ["smart-session", "install"] }),
+        ]);
+      })
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
+  }
+
+  function toggleEnabled() {
+    if (settings === undefined) return;
+    const next = !settings.enabled;
+    void writeSettings({ enabled: next })
+      // The pills live in this same client bundle, and the master switch decides
+      // whether they exist at all, so they are told directly rather than waiting
+      // out their own refresh interval.
+      .then(() => refreshPills(() => readEnrolment({})))
+      .then(() => {
+        toast.show(next ? "Smart compact on" : "Smart compact off");
+        return queryClient.invalidateQueries({ queryKey: ["smart-session", "settings"] });
+      })
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
+  }
+
+  function toggleAutoEnrol() {
+    if (settings === undefined) return;
+    const next = !settings.autoEnrol;
+    void writeSettings({ autoEnrol: next })
+      .then(() => refreshPills(() => readEnrolment({})))
+      .then(() => {
+        toast.show(next ? "Sessions enrol themselves" : "Sessions are enrolled one at a time");
         return queryClient.invalidateQueries({ queryKey: ["smart-session", "settings"] });
       })
       .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
@@ -293,37 +352,67 @@ export function SmartSessionSurface({ theme, layout }: PluginSurfaceProps) {
       )}
 
       {settings === undefined ? null : (
-        <Section theme={theme} title="Governor">
+        <Section theme={theme} title="Smart compact">
           <Toggle
             theme={theme}
-            on={settings.autopilot}
-            label="Compact automatically"
+            on={settings.enabled}
+            label="Smart compact"
             detail={
-              settings.autopilot
-                ? `At ${settings.thresholds.large.compact}% of a large window or ${settings.thresholds.small.compact}% of a small one, once the session is idle and its task state on disk is current. ${enrolled} session${
+              settings.enabled
+                ? `On. Past ${settings.thresholds.large.compact}% of a large window or ${settings.thresholds.small.compact}% of a small one, a session is asked at the end of a turn whether to compact itself — and compacted only if it says yes. ${enrolled} session${
                     enrolled === 1 ? "" : "s"
                   } enrolled.`
-                : `Off. Agents can still ask to be compacted themselves. ${enrolled} session${
-                    enrolled === 1 ? " has" : "s have"
-                  } written task state.`
+                : "Off. Nothing is asked and nothing is compacted. A request an agent already made waits rather than failing."
             }
-            onPress={toggleAutopilot}
+            onPress={toggleEnabled}
           />
           <View style={{ marginTop: 8 }}>
             <Toggle
               theme={theme}
+              on={settings.autoEnrol}
+              disabled={!settings.enabled}
+              label="Enrol sessions automatically"
+              detail="On, a session that has written task state with the checkpoint tool is enrolled by that alone. Off, each session is enrolled by hand from its pill."
+              onPress={toggleAutoEnrol}
+            />
+          </View>
+          <View style={{ marginTop: 8 }}>
+            <Toggle
+              theme={theme}
               on={settings.showPill}
+              disabled={!settings.enabled}
               label="Show the pill on every agent"
               detail="Puts the smart-compact state on each composer, where pressing it enrols that session or takes it out."
               onPress={togglePill}
             />
           </View>
+          <View style={{ marginTop: 8 }}>
+            <Toggle
+              theme={theme}
+              on={settings.installHooks}
+              disabled={!settings.enabled}
+              label="Register the hooks with Claude Code"
+              detail={
+                install === undefined
+                  ? "Keeps this plugin's hooks in ~/.claude/settings.json up to date. Nothing asks a session to compact itself without them."
+                  : install.error !== null
+                    ? install.error
+                    : install.pluginDir === null
+                      ? "Not registered. Nothing will ask a session to compact itself."
+                      : `Registered: ${install.hooks.join(", ")}. Only entries pointing at this plugin are touched; the MCP server is ${
+                          install.mcp === "unavailable" ? "not registered — the claude CLI was not reachable" : "registered"
+                        }.`
+              }
+              onPress={toggleInstallHooks}
+            />
+          </View>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, marginTop: 6 }}>
-            A session enrols by using the checkpoint tool, or by its pill. Either way, one that has
-            never enrolled is never steered.
+            A session is never compacted unless it asks. Paseo puts the question at a turn boundary
+            and sends exactly two things in reply: the /compact the session asked for, and, once that
+            lands, one line telling it to pick up from its task state.
           </Text>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, marginTop: 4 }}>
-            {`Compact at ${settings.thresholds.large.compact}% of a ${formatTokens(settings.thresholds.largeWindowFrom)}+ window (${formatTokens(
+            {`Asked at ${settings.thresholds.large.compact}% of a ${formatTokens(settings.thresholds.largeWindowFrom)}+ window (${formatTokens(
               Math.round((settings.thresholds.large.compact / 100) * 1_000_000),
             )} tokens on a 1M session), or ${settings.thresholds.small.compact}% of a smaller one. What tires a context is its absolute size, not its share of the window.`}
           </Text>

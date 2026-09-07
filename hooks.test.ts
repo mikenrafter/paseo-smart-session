@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 
+import { resumeInstructions } from "./governor.shared.ts";
 import { DEFAULT_THRESHOLDS, profileFor } from "./thresholds.shared.ts";
 
 const execFileAsync = promisify(execFile);
@@ -282,4 +283,214 @@ test("the two compaction events deliver the pointer once between them", async ()
   const transcriptPath = transcript(dir, 1_000, "claude-opus-5");
   const repeat = await runHook("hooks/context-threshold.mjs", { ...base, transcript_path: transcriptPath, cwd: dir }, env);
   assert.equal(repeat, "", "the pointer must not be said a second time");
+});
+
+/* -------------------------------------------------------------------------- *
+ * The Stop hook: the only thing that ever asks a session to compact itself.
+ * -------------------------------------------------------------------------- */
+
+const AGENT = "agent-under-test";
+
+/** A `$PASEO_HOME` holding one enrolled agent with task state of a given age. */
+function enrolledHome(options: { stateAgeMinutes?: number | null } = {}): string {
+  const home = mkdtempSync(join(tmpdir(), "ss-ask-"));
+  const dir = join(home, "plugin-data", "smart-session");
+  mkdirSync(join(dir, "state"), { recursive: true });
+  const age = options.stateAgeMinutes;
+  if (age !== null) {
+    const path = join(dir, "state", `${AGENT}.md`);
+    writeFileSync(path, "# Task state\n## Current step\nWiring the hook.\n", "utf8");
+    if (age !== undefined && age > 0) {
+      const when = new Date(Date.now() - age * 60_000);
+      utimesSync(path, when, when);
+    }
+  }
+  return home;
+}
+
+function settingsFile(home: string, settings: Record<string, unknown>): void {
+  writeFileSync(
+    join(home, "plugin-data", "smart-session", "settings.json"),
+    JSON.stringify(settings),
+    "utf8",
+  );
+}
+
+/** A Stop event for `used` tokens of a 1M window, against an enrolled agent. */
+async function stopHook(
+  home: string,
+  used: number,
+  event: Record<string, unknown> = {},
+): Promise<string> {
+  const path = transcript(mkdtempSync(join(tmpdir(), "ss-tx-")), used, "claude-opus-5");
+  return runHook(
+    "hooks/ask-compact.mjs",
+    { session_id: "s1", transcript_path: path, cwd: home, hook_event_name: "Stop", stop_hook_active: false, ...event },
+    { PASEO_HOME: home, PASEO_AGENT_ID: AGENT, SMART_SESSION_CONTEXT_WINDOW: "1000000" },
+  );
+}
+
+test("below the compact band the Stop hook says nothing at all", async () => {
+  // Everything the agent needs to hear on the way up is already said mid-turn by
+  // the PostToolUse hook. Stopping a turn to repeat it would be pure noise.
+  assert.equal(await stopHook(enrolledHome(), 200_000), "");
+});
+
+test("at the compact band it asks, names the tools, and leaves the choice open", async () => {
+  const advice = await adviceFrom(await stopHook(enrolledHome(), 340_000));
+  assert.match(advice, /340,000 tokens \(34%/);
+  assert.match(advice, /request_compaction/);
+  assert.match(advice, /defer_compaction/);
+  // The whole point of the redesign: the plugin asks, it does not announce.
+  assert.match(advice, /your call/i);
+  assert.doesNotMatch(advice, /you will be compacted/i);
+});
+
+test("a stale state file is named, so the agent checkpoints before it asks", async () => {
+  const advice = await adviceFrom(await stopHook(enrolledHome({ stateAgeMinutes: 120 }), 340_000));
+  assert.match(advice, /120 minutes ago/);
+  assert.match(advice, /checkpoint/);
+});
+
+test("a session enrolled by hand with no state file is told to write one first", async () => {
+  // Reachable only through the pill: with nothing on disk there is nothing to infer
+  // enrolment from, so someone said so explicitly. It must not be told to compact
+  // before it has written down anything to compact around.
+  const home = enrolledHome({ stateAgeMinutes: null });
+  writeFileSync(
+    join(home, "plugin-data", "smart-session", "enrolment.json"),
+    JSON.stringify({ [AGENT]: true }),
+    "utf8",
+  );
+  const advice = await adviceFrom(await stopHook(home, 340_000));
+  assert.match(advice, /no task state on disk/);
+  assert.match(advice, /checkpoint/);
+  assert.match(advice, /is gone after the compaction/);
+});
+
+test("an agent nobody enrolled is never spoken to, however full it is", async () => {
+  const home = enrolledHome({ stateAgeMinutes: null });
+  assert.equal(await stopHook(home, 900_000), "");
+});
+
+test("the master switch silences it completely", async () => {
+  const home = enrolledHome();
+  settingsFile(home, { enabled: false });
+  assert.equal(await stopHook(home, 900_000), "");
+});
+
+test("turning off automatic enrolment silences a session that only checkpointed", async () => {
+  const home = enrolledHome();
+  settingsFile(home, { autoEnrol: false });
+  assert.equal(await stopHook(home, 900_000), "");
+});
+
+test("a turn this hook already extended is never extended again", async () => {
+  // Claude Code overrides a hook that keeps a turn alive too many times in a row
+  // and tells you to check exactly this flag.
+  const home = enrolledHome();
+  assert.equal(await stopHook(home, 900_000, { stop_hook_active: true }), "");
+});
+
+test("a session waiting on background work is not asked to compact", async () => {
+  // "Stopped" and "paused until that finishes" are different states, and compacting
+  // through the second discards the context the work reports into.
+  const home = enrolledHome();
+  const busy = await stopHook(home, 900_000, {
+    background_tasks: [{ id: "t1", status: "running" }],
+  });
+  assert.equal(busy, "");
+  // Same session, same occupancy, nothing in flight: now it asks.
+  assert.notEqual(await stopHook(home, 900_000), "");
+});
+
+test("the ask is latched, and re-armed by growth rather than by asking again", async () => {
+  const home = enrolledHome();
+  assert.notEqual(await stopHook(home, 310_000), "", "asks the first time");
+  assert.equal(await stopHook(home, 320_000), "", "one more percent is not new information");
+  // Ten points of the window later it is a materially different situation.
+  assert.notEqual(await stopHook(home, 420_000), "", "asks again once it has really moved");
+});
+
+test("a deferral is honoured, and expires", async () => {
+  const home = enrolledHome();
+  assert.notEqual(await stopHook(home, 310_000), "");
+
+  const ledger = join(home, "plugin-data", "smart-session", "asks", `${AGENT}.json`);
+  const held = JSON.parse(readFileSync(ledger, "utf8")) as Record<string, unknown>;
+  writeFileSync(
+    ledger,
+    JSON.stringify({
+      ...held,
+      askedAtPct: 31,
+      deferredUntil: new Date(Date.now() + 30 * 60_000).toISOString(),
+    }),
+    "utf8",
+  );
+  assert.equal(await stopHook(home, 900_000), "", "the agent said not yet, and meant it");
+
+  writeFileSync(
+    ledger,
+    JSON.stringify({ ...held, askedAtPct: 31, deferredUntil: new Date(Date.now() - 1000).toISOString() }),
+    "utf8",
+  );
+  assert.notEqual(await stopHook(home, 900_000), "", "and the deferral runs out");
+});
+
+test("a queued compaction is not asked for twice", async () => {
+  const home = enrolledHome();
+  writeFileSync(
+    join(home, "plugin-data", "smart-session", "compactions.json"),
+    JSON.stringify({ version: 1, items: [{ agentId: AGENT, state: "pending", settledAt: null }] }),
+    "utf8",
+  );
+  assert.equal(await stopHook(home, 900_000), "");
+});
+
+test("a window that refilled within minutes is told to stop compacting, not to compact", async () => {
+  const home = enrolledHome();
+  writeFileSync(
+    join(home, "plugin-data", "smart-session", "compactions.json"),
+    JSON.stringify({
+      version: 1,
+      items: [{ agentId: AGENT, state: "sent", settledAt: new Date().toISOString() }],
+    }),
+    "utf8",
+  );
+  const advice = await adviceFrom(await stopHook(home, 340_000));
+  assert.match(advice, /refilled/);
+  assert.doesNotMatch(advice, /request_compaction/);
+});
+
+test("the Stop hook labels its output as Stop, or Claude Code rejects all of it", async () => {
+  // hookEventName is validated against a union; a name outside it fails the whole
+  // output and injects nothing.
+  const parsed = JSON.parse(await stopHook(enrolledHome(), 340_000)) as {
+    hookSpecificOutput: { hookEventName: string };
+  };
+  assert.equal(parsed.hookSpecificOutput.hookEventName, "Stop");
+});
+
+test("a compaction clears the ask ledger, so the next fill is asked about again", async () => {
+  const home = enrolledHome();
+  await stopHook(home, 310_000);
+  const ledger = join(home, "plugin-data", "smart-session", "asks", `${AGENT}.json`);
+  assert.equal(JSON.parse(readFileSync(ledger, "utf8")).askCount, 1);
+
+  await runHook(
+    "hooks/post-compact.mjs",
+    { session_id: "s1", hook_event_name: "PostCompact", trigger: "manual", compact_summary: "..." },
+    { PASEO_HOME: home, PASEO_AGENT_ID: AGENT },
+  );
+  assert.notEqual(await stopHook(home, 320_000), "", "a new epoch is asked about from scratch");
+});
+
+test("the resume names the state file and tells the continuation to carry on", () => {
+  // Nothing in Claude Code restarts a task after a manual /compact, so this is the
+  // one message the plugin sends that the agent did not ask for.
+  const text = resumeInstructions({ statePath: "/tmp/state.md" });
+  assert.match(text, /\/tmp\/state\.md/);
+  assert.match(text, /Current step/);
+  assert.match(text, /the file is correct/);
+  assert.doesNotMatch(resumeInstructions({ statePath: null }), /re-read null/i);
 });

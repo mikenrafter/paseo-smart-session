@@ -248,7 +248,8 @@ subagents, or stop and wait for the window to roll (which `paseo-defer` can alre
 | **4. Sensing** | `context_status` / `budget_status` for the agent, plus threshold injection | **done** — `mcp.mjs` (scoped by environment) and `hooks/context-threshold.mjs` |
 | **5. State discipline** | `checkpoint` tool, post-compaction re-read hook, staleness nudges | **done** — the tool's shape enforces the discipline: goal/plan/current step are replaced, decisions and dead ends accumulate. The re-read pointer is delivered by `SessionStart:compact` with a `PostToolUse` fallback, since `PostCompact` cannot inject |
 | **6. Agent-initiated compaction** | `request_compaction` + deliver-when-idle + grading | **done** — `governor.server.ts`, verified end to end |
-| **7. Autopilot** | Two-phase policy, thrash detection, opt-in enrolment | **done, off by default** — turn it on in the surface once Mode 1 has run for a week |
+| **7. Autopilot** | Two-phase policy, thrash detection, opt-in enrolment | **removed in v0.3** — replaced by Phase 8. Shipped in v0.2 and never enabled; the design below (§3.4, mode 2) was the wrong shape, because a threshold the plugin acts on is a threshold the agent did not agree to |
+| **8. The ask** | `Stop` hook puts the question at a turn boundary; `request_compaction` / `defer_compaction` answer it; the governor resumes the emptied session | **done, on by default** — `hooks/ask-compact.mjs`. Compaction is now agent-mandated in every case |
 
 ### Thresholds scale with the window, not with the percentage
 
@@ -303,8 +304,10 @@ Phases 1–3 and 4–7 are independent after Phase 1; 4 doesn't need 3.
 
 1. **One plugin, two surfaces** — the recorder is shared and the Governor wants `budget_status`.
    Splittable later if the Meter becomes publishable on its own.
-2. **Through Mode 1 only** — the agent asks, the plugin executes. Autopilot waits for a week of
-   grading data, and for the state-file discipline of Phase 5 to exist.
+2. **Through Mode 1 only** — the agent asks, the plugin executes. *Settled in v0.3: permanently.*
+   Mode 2 (autopilot) shipped in v0.2 behind a switch, was never turned on, and has been removed. A
+   percentage the plugin acts on is a decision the agent never made; the threshold now only decides
+   when to *ask*, and the answer is the agent's. Mode 3 (handoff) is still open.
 3. **The store is provider-generic** — every window the provider reports is recorded, including ones
    with codenames we do not recognize. Only the UI filters.
 

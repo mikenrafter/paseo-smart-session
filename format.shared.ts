@@ -73,11 +73,10 @@ export function rampStep(value: number, max: number, steps: number): number {
  * by the latter name that fires on its own thresholds, and a pill that borrowed the
  * name would read as a switch for that.
  *
- * Three states, not two. An enrolled agent is still not going to be compacted while
- * autopilot is off globally, and a pill that said "on" there would be telling the
- * user something that is not true.
+ * Two states, because there are only two. Whether this session is governed is the
+ * only question a pill can answer; whether the feature exists at all is answered by
+ * the pill being drawn, since it is hidden entirely when Smart compact is off.
  */
-export function smartCompactLabel(input: { enrolled: boolean; autopilot: boolean }): string {
-  if (!input.enrolled) return "Smart compact off";
-  return input.autopilot ? "Smart compact on" : "Smart compact paused";
+export function smartCompactLabel(input: { enrolled: boolean }): string {
+  return input.enrolled ? "Smart compact on" : "Smart compact off";
 }

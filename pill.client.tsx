@@ -10,6 +10,11 @@
  * things that change it (its own press, the Command Center item, the surface
  * toggle) are all in this one client bundle. One store, one fetch, and every
  * mounted pill redraws together.
+ *
+ * Two states, on or off, and pressing it moves between them. There is no third
+ * state for "on but nothing will happen", because there is no longer a global
+ * switch that can make an enrolled session inert — the master switch hides the pill
+ * outright instead.
  */
 
 import { Icon, type PluginClientContext, type PluginComposerPillProps } from "@getpaseo/plugin";
@@ -38,8 +43,8 @@ const HOVER_DELAY_MS = 300;
 const HOST_PILL_INSET = { horizontal: 13, vertical: 5 };
 
 interface PillState {
+  /** Both switches folded into one answer: is there a pill on the composer at all. */
   readonly showPill: boolean;
-  readonly autopilot: boolean;
   readonly enrolled: ReadonlySet<string>;
 }
 
@@ -49,7 +54,7 @@ interface PillState {
  * The alternative — assume shown, then retract — flashes a pill at everyone who
  * turned it off, every time the app loads.
  */
-let state: PillState = { showPill: false, autopilot: false, enrolled: new Set() };
+let state: PillState = { showPill: false, enrolled: new Set() };
 
 const listeners = new Set<() => void>();
 
@@ -83,8 +88,9 @@ function enrolmentSet(agents: EnrolmentState["agents"]): ReadonlySet<string> {
 export async function refreshPills(fetch: () => Promise<EnrolmentState>): Promise<void> {
   const next = await fetch();
   publish({
-    showPill: next.showPill,
-    autopilot: next.autopilot,
+    // With the feature off there is nothing for a pill to say. Drawing a third,
+    // "paused" state would just be a second way of spelling off.
+    showPill: next.enabled && next.showPill,
     enrolled: enrolmentSet(next.agents),
   });
 }
@@ -125,11 +131,7 @@ export function AutoCompactPill({ theme, agentId }: PluginComposerPillProps) {
   }, [clearHoverTimer]);
 
   const enrolled = current.enrolled.has(agentId);
-  const color = !enrolled
-    ? theme.colors.foregroundMuted
-    : current.autopilot
-      ? theme.colors.accent
-      : theme.colors.statusWarning;
+  const color = enrolled ? theme.colors.accent : theme.colors.foregroundMuted;
   return (
     <View
       style={{
@@ -167,7 +169,7 @@ export function AutoCompactPill({ theme, agentId }: PluginComposerPillProps) {
           }}
         >
           <Text numberOfLines={1} style={{ color: theme.colors.foreground, fontSize: 13 }}>
-            {smartCompactLabel({ enrolled, autopilot: current.autopilot })}
+            {smartCompactLabel({ enrolled })}
           </Text>
           <Text numberOfLines={1} style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>
             {enrolled ? "Press to take this session out" : "Press to enrol this session"}

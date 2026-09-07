@@ -28,6 +28,7 @@ import {
   statePath,
   writePending,
 } from "./pointer.mjs";
+import { resetLedger } from "./asks.mjs";
 
 /**
  * How recently SessionStart must have spoken for PostCompact to stay quiet.
@@ -108,6 +109,9 @@ async function main() {
   const text = pointerText(path, age);
 
   resetLatch(sessionId);
+  // A new epoch: the occupancy the last ask was about no longer exists, so a
+  // session that fills up again is entitled to be asked again.
+  resetLedger(sessionId);
   recordCompaction(event, eventName, age);
 
   if (eventName !== "SessionStart") {

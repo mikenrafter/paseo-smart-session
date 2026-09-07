@@ -86,11 +86,38 @@ export const ThresholdsSchema = z.object({
 });
 
 export const SettingsSchema = z.object({
-  autopilot: z.boolean(),
+  /** The master switch: with this off, Smart compact does nothing at all. */
+  enabled: z.boolean(),
   thresholds: ThresholdsSchema,
   freshStateMinutes: z.number(),
   /** Whether every agent's composer carries the smart-compact pill. */
   showPill: z.boolean(),
+  /** Whether checkpointing enrols a session, or enrolment is per-session opt-in. */
+  autoEnrol: z.boolean(),
+  /** Whether the plugin keeps its own hooks registered in Claude Code. */
+  installHooks: z.boolean(),
+});
+
+/**
+ * What the plugin did to Claude Code's configuration, and whether it worked.
+ *
+ * Worth surfacing rather than only logging: an install that silently found no
+ * hooks directory looks exactly like a working one from the outside.
+ */
+export const InstallReportSchema = z.object({
+  pluginDir: z.string().nullable(),
+  settingsPath: z.string(),
+  changed: z.boolean(),
+  hooks: z.array(z.string()),
+  mcp: z.enum(["present", "added", "unavailable", "skipped"]),
+  error: z.string().nullable(),
+});
+
+/** The state of the Claude Code integration, re-reconciled on demand. */
+export const installStatus = defineRpc({
+  name: "smart-session.install.status",
+  input: z.object({}),
+  output: z.object({ report: InstallReportSchema }),
 });
 
 /** Read the governor's settings, and the count of agents currently enrolled. */

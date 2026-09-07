@@ -49,6 +49,16 @@
   loop alive and hangs Paseo's "Stopping plugin" step, which wedges reload for the life of the
   daemon. Every timer and resource must be released through `lifecycle.shared.ts`;
   `check-teardown.mjs` enforces it.
+- `install.server.ts` writes to `~/.claude/settings.json`, which the plugin does not own. It may only
+  add, update or remove entries whose command points at this checkout's `hooks/*.mjs`; it must never
+  write a path it has not confirmed exists, must not write at all when reconciling changes nothing,
+  and must leave a malformed file alone rather than rewriting it from a partial parse. MCP
+  registration goes through `claude mcp add-json` — never edit `~/.claude.json`, which holds
+  credentials.
+- The load-time call lives in `install-on-load.server.ts`, not in `install.server.ts`. Importing the
+  reconciler must stay free of side effects, or a test that imports it writes to the machine's real
+  Claude Code settings — which is not hypothetical; it happened, and `install.test.ts` has the
+  regression test for it.
 - `hooks/*.mjs` and `mcp.mjs` are dependency-free Node scripts run by Claude Code, not by Paseo.
   They must stay runnable with no `node_modules` and must never fail the turn they are describing:
   wrap bookkeeping in `try`/`catch` and stay silent rather than erroring.
@@ -73,9 +83,21 @@
   that name with its own thresholds, and borrowing it makes the pill read as a switch for that one.
   `RESEARCH.md` §4.1 and `PLAN.md` do mean Claude Code's feature when they say auto-compact; leave
   those alone.
-- Autopilot is off by default and stays that way. A compaction fired at the wrong moment is worse
-  than one that never fires: deliver only at a turn boundary, only when task state on disk is
-  current, and never retry an interrupted `/compact` — it is destructive and not idempotent.
+- **Compaction is always agent-mandated.** Nothing in this plugin may decide that a session should be
+  compacted; `queue.add` is reached only from an agent's `request_compaction` or a person. The ask
+  lives in `hooks/ask-compact.mjs` on `Stop`, where it rides the agent's own turn.
+- The plugin sends an agent exactly two things, and `sendToAgent` has exactly two call sites: the
+  `/compact` the agent asked for, and the one line that hands the emptied session back its state
+  file. Anything else it needs to hear comes from a hook. Adding a third is a design change, not a
+  patch — if you think you need one, check `RESEARCH.md` §3.4 first, because it probably records why
+  the hook route you are about to reimplement does not work.
+- The resume exists because no hook can restart a task after a compaction, and it is sent only for
+  queue-originated compactions, so a `/compact` a person typed is never overridden.
+- Deliver only at a turn boundary, only when task state on disk is current, and never retry an
+  interrupted `/compact` — it is destructive and not idempotent.
+- `settings.enabled` is the master switch; `showPill` and `autoEnrol` qualify it and mean nothing
+  while it is off. There is no third pill state — a session is enrolled or it is not, and with the
+  feature off the pill is not drawn at all.
 - Do not log secrets, tokens, task-state contents, or message bodies. Credentials are read-only.
 
 ## Verify changes
@@ -98,6 +120,11 @@ cannot see.
 | `check-bundles.mjs` | The dual-bundle boundary, plus the app's own registration validation, so a contribution Paseo would reject at install time fails here instead. |
 | `check-gitinstall.mjs` | That both bundles still compile with no installed dependencies, which is what `paseo plugin add` does. |
 | `check-teardown.mjs` | That the subprocess actually exits after cleanup. A leaked timer wedges plugin reload. |
+
+Hook behaviour is verified against the Claude Code binary *and* a live session, never against the
+public docs — `RESEARCH.md` §3.4 records four answers the schemas alone got wrong. Extract with
+`strings` on `~/.local/share/claude/versions/<v>`, then confirm with a throwaway `claude -p` session
+under `--settings` pointing at logging hooks.
 
 Tests run on Node's own runner with type stripping (`node --test --experimental-strip-types`). A new
 test must fail on the unfixed code for the reason it claims — delete the line it covers and watch it

@@ -2,9 +2,11 @@
 /**
  * A stdio MCP server that lets an agent see its own context and ask to be compacted.
  *
- * This is the half of Smart Session that the *model* talks to. The plugin records
- * and delivers; this exposes three tools to the agent running inside Paseo:
- * how full am I, how much plan budget is left, and please compact me.
+ * This is the half of Smart Session that the *model* talks to, and it is where the
+ * decision to compact is actually taken. The plugin records and delivers; nothing
+ * in it ever decides that a session should be compacted. These tools are how the
+ * session decides for itself: how full am I, how much plan budget is left, write
+ * down what I know, compact me, not yet.
  *
  * Identity comes from `PASEO_AGENT_ID`, which Paseo sets in every agent process, so
  * "my context" needs no argument and cannot be pointed at the wrong session.
@@ -18,7 +20,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { readSettings } from "./hooks/context.mjs";
+import { defer, readLedger } from "./hooks/asks.mjs";
 
 const PLUGIN_ID = "smart-session";
 const AGENT_ID = process.env.PASEO_AGENT_ID ?? null;
@@ -26,10 +29,10 @@ const AGENT_ID = process.env.PASEO_AGENT_ID ?? null;
 /**
  * Which tools this session gets.
  *
- * Three of the four tools are about *this* session — its context, its state file,
- * compacting it — and they need the `PASEO_AGENT_ID` that only Paseo sets. Outside
- * Paseo they cannot work, so they are not offered: a tool that exists and always
- * fails is worse than one that is absent.
+ * All but one are about *this* session — its context, its state file, compacting
+ * it, putting that off — and they need the `PASEO_AGENT_ID` that only Paseo sets.
+ * Outside Paseo they cannot work, so they are not offered: a tool that exists and
+ * always fails is worse than one that is absent.
  *
  * `budget_status` needs no session identity and is useful anywhere, so it stays.
  * Set SMART_SESSION_MCP_SCOPE=paseo to offer nothing at all outside Paseo.
@@ -39,7 +42,7 @@ const AGENT_ID = process.env.PASEO_AGENT_ID ?? null;
  * or short list costs no tokens, only the node process. For true Paseo-only
  * registration, see the wrapper described in the README.
  */
-const AGENT_SCOPED = new Set(["context_status", "checkpoint", "request_compaction"]);
+const AGENT_SCOPED = new Set(["context_status", "checkpoint", "request_compaction", "defer_compaction"]);
 
 function availableTools() {
   if (AGENT_ID !== null) return Object.keys(TOOLS);
@@ -50,7 +53,26 @@ function availableTools() {
 /** stdout carries protocol only; anything else corrupts the stream. */
 const log = (...args) => console.error("[smart-session mcp]", ...args);
 
+/**
+ * Paseo's daemon client, loaded only when something actually needs it.
+ *
+ * A top-level import would make this whole server fail to start wherever
+ * `@getpaseo/client` cannot be resolved — which is every Claude Code session that
+ * is not a Paseo agent, since the plugin ships with no installed dependencies. The
+ * tools that need it are already hidden outside Paseo by `availableTools()`; this
+ * makes the ones that do not need it work there too.
+ */
+let daemonClientModule = null;
+
+async function loadDaemonClient() {
+  if (daemonClientModule !== null) return daemonClientModule;
+  const specifier = ["@getpaseo", "client", "internal", "daemon-client"].join("/");
+  daemonClientModule = await import(specifier);
+  return daemonClientModule;
+}
+
 async function callPlugin(method, input) {
+  const { DaemonClient } = await loadDaemonClient();
   const client = new DaemonClient({
     url: process.env.PASEO_DAEMON_URL ?? "ws://127.0.0.1:6767/ws",
     clientId: "smart-session-mcp",
@@ -95,6 +117,10 @@ function statePath() {
   const home = process.env.PASEO_HOME ?? join(homedir(), ".paseo");
   return join(home, "plugin-data", "smart-session", "state", `${requireAgent()}.md`);
 }
+
+/** A deferral is an answer with a deadline, not an escape hatch; hence the cap. */
+const DEFAULT_DEFER_MINUTES = 20;
+const MAX_DEFER_MINUTES = 60;
 
 const SECTIONS = ["Goal", "Plan", "Current step", "Decisions", "Dead ends", "Key facts"];
 
@@ -303,7 +329,7 @@ const TOOLS = {
 
   request_compaction: {
     description:
-      "Ask for this session to be compacted. The request is delivered as a real /compact once this session goes idle — never mid-turn — with instructions steering what the summary must keep. Write your durable task state to a file FIRST and pass its path, so the continuation has something authoritative to re-read; a summary alone loses the things you never wrote down.",
+      "Ask for this session to be compacted. Nothing compacts a session that has not asked, so this is the only way it happens. The request is delivered as a real /compact once this session goes idle — never mid-turn — with instructions steering what the summary must keep, and afterwards you are handed back your state file and told to carry on. Write your durable task state with checkpoint FIRST: this refuses to queue anything while the state on disk is missing or older than the work it describes.",
     inputSchema: {
       type: "object",
       properties: {
@@ -322,20 +348,80 @@ const TOOLS = {
     },
     async run(args) {
       const agentId = requireAgent();
+      const settings = readSettings();
+      if (!settings.enabled) {
+        return "Smart compact is switched off for this Paseo install, so nothing would deliver this request. Compact by hand if you need to, or ask the user to turn Smart compact on in the Smart Session surface.";
+      }
+
+      // Default to this session's own state file: the whole point is that the
+      // continuation has something authoritative to read, and the agent should not
+      // have to remember a path to get that.
+      const path = args.state_path === undefined ? statePath() : String(args.state_path);
+
+      // Persist, then compact. The other order is how you lose the work — so this
+      // refuses rather than queueing, because refusing costs one tool call and the
+      // agent can fix it in the same turn, where the old design spent a whole extra
+      // turn on the plugin asking for the same thing.
+      const age = stateAgeSeconds(path);
+      if (age === null) {
+        return [
+          `Not queued: there is no task state at ${path}, and compacting without it is exactly how a task gets lost.`,
+          "Call checkpoint first — goal, the step in progress and its exact next action, decisions and why, and every approach already tried and rejected — then call request_compaction again.",
+        ].join(" ");
+      }
+      if (age > settings.freshStateMinutes * 60) {
+        return [
+          `Not queued: ${path} was last written ${Math.round(age / 60)} minutes ago, so it probably predates the work you are about to discard.`,
+          "Call checkpoint to bring it up to date, then call request_compaction again.",
+        ].join(" ");
+      }
+
       const result = await callPlugin("smart-session.compact.request", {
         agentId,
         reason: String(args.reason ?? "no reason given"),
-        // Default to this session's own state file: the whole point is that the
-        // continuation has something authoritative to read, and the agent should
-        // not have to remember a path to get that.
-        statePath: args.state_path === undefined ? statePath() : String(args.state_path),
+        statePath: path,
       });
       const queued = result.request;
       return [
         `Compaction queued (${queued.id.slice(0, 8)}). It will be delivered as soon as this session is idle — so finish the turn you are in and stop.`,
-        queued.statePath === null
-          ? "No state file was given. If you have not written your task state to disk, do that now: everything not on disk or in the summary is gone after this."
-          : `The continuation will be told to re-read ${queued.statePath} and to trust it over the summary.`,
+        `The continuation will be told to re-read ${queued.statePath} and to trust it over the summary, and to carry on from its "Current step" section.`,
+      ].join("\n");
+    },
+  },
+
+  defer_compaction: {
+    description:
+      "Decline to compact for now, and say why. Use this when Smart compact has asked and this is the wrong moment — a refactor half applied, a tool sequence not finished, an answer the user is waiting on. You will not be asked again until the deferral runs out. This is a real answer, not a way of ignoring the question: the context keeps growing while it is in force.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        reason: {
+          type: "string",
+          description: "Why now is the wrong moment, in one sentence. Recorded as your answer.",
+        },
+        minutes: {
+          type: "number",
+          description: `How long to hold off, in minutes. Capped at ${MAX_DEFER_MINUTES}; defaults to ${DEFAULT_DEFER_MINUTES}.`,
+        },
+      },
+      required: ["reason"],
+      additionalProperties: false,
+    },
+    async run(args) {
+      requireAgent();
+      const asked = Number(args.minutes);
+      const minutes = Math.min(
+        MAX_DEFER_MINUTES,
+        Math.max(1, Number.isFinite(asked) && asked > 0 ? asked : DEFAULT_DEFER_MINUTES),
+      );
+      const reason = String(args.reason ?? "no reason given");
+      const until = defer(null, minutes, reason);
+      const ledger = readLedger(null);
+      return [
+        `Deferred for ${minutes} minutes (until ${until}). You will not be asked again before then.`,
+        ledger.askCount >= 2
+          ? "This is not the first time this session has put it off, and the window has kept filling the whole while. If the moment does not arrive soon, checkpoint and compact anyway — the alternative is Claude Code's own auto-compact firing with no instructions and no pointer to your state file."
+          : "When the step you are on is finished, call checkpoint and then request_compaction.",
       ].join("\n");
     },
   },
@@ -362,7 +448,7 @@ async function handle(request) {
     respond(id, {
       protocolVersion: params?.protocolVersion ?? "2025-06-18",
       capabilities: { tools: {} },
-      serverInfo: { name: "smart-session", version: "0.2.0" },
+      serverInfo: { name: "smart-session", version: "0.3.0" },
     });
     return;
   }

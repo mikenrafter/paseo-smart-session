@@ -142,6 +142,8 @@ usage"), **`get_usage`** ("structured /usage data … plus claude.ai plan rate-l
 
 ## 3. Claude Code hooks — the full surface in 2.1.261
 
+_§3.1–3.3 were measured against 2.1.261; §3.4 re-checks the parts that matter against 2.1.263._
+
 ### 3.1 Events (33, well beyond the public docs)
 `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch`, `UserPromptSubmit`,
 `UserPromptExpansion`, `Notification`, `Stop`, `StopFailure`, `SubagentStart`, `SubagentStop`,
@@ -200,6 +202,50 @@ matches `source` (`case "SessionStart": return e.source`). **Measured on two rea
 `hook_success` + `hook_additional_context`.
 
 ---
+
+### 3.4 Asking, and resuming — measured against 2.1.263 (2026-09-07)
+
+Everything here was checked twice: extracted from the binary's Zod schemas, then run against a
+throwaway session with logging hooks. Three of the four answers were the opposite of what the
+schema alone suggested, which is why the second half matters.
+
+**`Stop` can ask, and it does not need `decision: "block"` to do it.** The `Stop` variant of
+`hookSpecificOutput` carries `additionalContext` and describes itself:
+
+> "Hook-specific output for the `Stop` event. `additionalContext` is non-error feedback delivered to
+> the model; **the conversation continues so the model can act on it**."
+
+Confirmed live: a `Stop` hook returning `additionalContext` of *"say exactly
+ACKNOWLEDGED-CONTEXT-87"* produced a session whose final result was `ACKNOWLEDGED-CONTEXT-87`. So the
+ask rides the agent's own turn, arrives at a real boundary, and costs no separate message.
+
+**`stop_hook_active` is real and required.** Observed `false` on the first call and `true` on the
+continuation the hook itself caused. Claude Code enforces a ceiling independently:
+`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP ?? 8`, after which it ends the turn with *"a hook blocked the turn
+from ending N consecutive times — overriding … check `stop_hook_active` in the input"*.
+
+**`initialUserMessage` on `SessionStart` cannot resume a compacted session.** The field exists on the
+schema, but the only consumer is the CLI bootstrap — `let qr = WVn(); if (qr) le.prependUserMessage(qr)`
+— and `WVn()` reads a `pendingInitialUserMessage` that nothing else touches. Live test: the hook fired
+with `source: "compact"`, returned `initialUserMessage`, and the run reported `num_turns: 0` with an
+empty result. Its `additionalContext` from the same output *did* land. So the pointer works; the
+resume does not.
+
+**`Stop` does not fire after a `/compact`.** With all four hooks installed, a compaction produced
+`SessionStart:compact` and then `PostCompact`, and no `Stop` at all — a command runs no model turn, so
+there is no turn end to fire on.
+
+Taken together: **no hook can restart a task after a compaction.** `PostCompact` cannot inject,
+`SessionStart:compact` injects but starts nothing, `Stop` never runs. The resume has to be a message
+from the plugin, and that is the only reason one exists.
+
+**And the task really does stop.** Across 190 compactions in this machine's own transcripts (189 of
+them `trigger: "manual"`), 163 halted and waited for a person; only 16 continued on their own.
+
+**`compact_boundary.trigger` is `"manual" | "auto"` and nothing else** — a `/compact` Paseo sent is
+indistinguishable from one a person typed. Telling an agent-mandated compaction from a human one
+therefore has to be done by correlating against the plugin's own queue, not by reading the trigger.
+
 
 ## 4. Triggering compaction
 

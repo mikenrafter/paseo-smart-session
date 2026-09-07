@@ -27,6 +27,14 @@ export const CompactionRequestSchema = z.object({
   /** Context occupancy either side of the compaction, for grading the policy. */
   preTokens: z.number().nullable(),
   postTokens: z.number().nullable(),
+  /**
+   * When the continuation was handed back its state file.
+   *
+   * Nothing in Claude Code restarts a task after a manual `/compact` — verified
+   * across 190 real compactions, 163 of which stopped dead waiting for a person
+   * (`RESEARCH.md` §3.4). So the governor says it, once, and records that it did.
+   */
+  resumedAt: z.string().nullable(),
 });
 export type CompactionRequest = z.infer<typeof CompactionRequestSchema>;
 
@@ -69,12 +77,13 @@ export const AgentEnrolmentSchema = z.object({
 /**
  * Everything the composer pill draws itself from, in one round trip.
  *
- * The two global switches ride along because the pill has to tell three states
- * apart: enrolled and armed, enrolled while autopilot is off, and not enrolled.
+ * `enabled` rides along because it decides whether there is a pill at all: with the
+ * feature switched off there is nothing for one to say, and a pill that read
+ * "paused" would just be a second way of spelling off.
  */
 export const EnrolmentStateSchema = z.object({
   showPill: z.boolean(),
-  autopilot: z.boolean(),
+  enabled: z.boolean(),
   /** Only agents with a state file or an explicit answer. Anyone absent is off. */
   agents: z.array(AgentEnrolmentSchema),
 });
@@ -116,4 +125,31 @@ export function compactionInstructions(request: {
     );
   }
   return parts.join(" ");
+}
+
+/**
+ * What the continuation is told, once the compaction has landed.
+ *
+ * This is the second and last message Paseo sends, and it exists because no hook
+ * can do it. `PostCompact` cannot inject at all; `SessionStart:compact` injects
+ * context but starts no turn — its `initialUserMessage` field is only ever read at
+ * process startup; and `Stop` does not fire for a `/compact`, because a command
+ * runs no model turn. All three were tested against 2.1.263 (`RESEARCH.md` §3.4).
+ *
+ * Deliberately short. The state file holds the task and the summary holds the
+ * conversation, so restating either here would only give the continuation a third
+ * account to reconcile.
+ */
+export function resumeInstructions(request: { statePath: string | null }): string {
+  if (request.statePath === null || request.statePath === "") {
+    return (
+      "That compaction was the one you asked for. Pick the task back up from the summary above and carry on from the next action it describes — " +
+      "and write your task state to disk with the checkpoint tool now, so the next one costs nothing."
+    );
+  }
+  return (
+    `That compaction was the one you asked for. Re-read ${request.statePath} and continue from its "Current step" section. ` +
+    "Where the file disagrees with the summary above, the file is correct — it was written deliberately; the summary was compressed automatically. " +
+    "Carry on from there without asking what to do next."
+  );
 }

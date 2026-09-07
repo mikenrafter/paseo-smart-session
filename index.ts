@@ -7,7 +7,15 @@ import { contextGrowth, projectFull } from "./growth.server.ts";
 import { countEnrolled, listEnrolment, readSettings, setEnrolled, writeSettings } from "./settings.server.ts";
 import { profileFor } from "./thresholds.shared.ts";
 import { summarizeSpend } from "./spend.server.ts";
-import { budgetStatus, contextStatus, getSettings, setSettings, spendSummary } from "./smart-session.shared.ts";
+import {
+  budgetStatus,
+  contextStatus,
+  getSettings,
+  installStatus,
+  setSettings,
+  spendSummary,
+} from "./smart-session.shared.ts";
+
 import {
   cancelCompaction,
   enrolmentState,
@@ -25,6 +33,11 @@ import { contributeClient, refreshPills } from "./pill.client";
 import "./recorder.server.ts";
 // Same: the governor owns the compaction queue and its delivery timer.
 import { queue } from "./governor.server.ts";
+// Same again: this one registers the plugin's hooks with Claude Code on load. The
+// `Stop` hook is what asks a session to compact itself, so an install without it
+// reports "on" and does nothing at all.
+import "./install-on-load.server.ts";
+import { install } from "./install.server.ts";
 
 export default function contribute(plugin: PluginContext) {
   plugin.handle(budgetStatus, async () => {
@@ -126,7 +139,15 @@ export default function contribute(plugin: PluginContext) {
     enrolledAgents: await countEnrolled(),
   }));
 
-  plugin.handle(setSettings, async (patch) => ({ settings: await writeSettings(patch) }));
+  plugin.handle(setSettings, async (patch) => {
+    const settings = await writeSettings(patch);
+    // Reconciled here as well as on load, so turning the switch off removes the
+    // hooks immediately rather than at the next reload.
+    if (patch.installHooks !== undefined) void install().catch(() => undefined);
+    return { settings };
+  });
+
+  plugin.handle(installStatus, async () => ({ report: await install() }));
 
   plugin.handle(requestCompaction, async ({ agentId, reason, statePath }) => ({
     request: await queue.add({ agentId, reason, statePath: statePath ?? null }),
@@ -151,7 +172,7 @@ export default function contribute(plugin: PluginContext) {
 
   plugin.handle(enrolmentState, async () => {
     const settings = await readSettings();
-    return { showPill: settings.showPill, autopilot: settings.autopilot, agents: await listEnrolment() };
+    return { showPill: settings.showPill, enabled: settings.enabled, agents: await listEnrolment() };
   });
 
   plugin.handle(setEnrolment, async ({ agentId, enrolled }) => ({
@@ -183,7 +204,7 @@ export default function contribute(plugin: PluginContext) {
     id: "smart-session-pill",
     title: "Show or hide the smart-compact pill",
     icon: "ToggleLeft",
-    keywords: ["pill", "compact", "autopilot", "governor", "enrol"],
+    keywords: ["pill", "compact", "smart", "governor", "enrol"],
     context: "global",
     async onSelect({ rpc }) {
       const { settings } = await rpc(getSettings, {});

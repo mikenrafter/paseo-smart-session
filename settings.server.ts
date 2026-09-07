@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { dataDir } from "./store.server.ts";
@@ -14,18 +14,22 @@ import { DEFAULT_THRESHOLDS, normalizeThresholds, type Thresholds } from "./thre
 
 export interface Settings {
   /**
-   * Whether the governor may compact an agent on its own.
+   * The master switch: whether Smart compact runs at all.
    *
-   * Off by default, and deliberately so: a compaction fired at the wrong moment is
-   * worse than one that never fires, and the state-file discipline that makes it
-   * safe has to be in place first.
+   * Off means the `Stop` hook never asks, the pill is not drawn, and a queued
+   * compaction is not delivered. It is the one control that has to be
+   * unambiguous, because everything else here only qualifies it.
+   *
+   * On by default. It was safe to make it so once the plugin lost the ability to
+   * compact a session that had not asked: the worst it can now do is put a
+   * question to an agent that ignores it.
    */
-  readonly autopilot: boolean;
+  readonly enabled: boolean;
   /**
    * When a context counts as too full, per window size.
    *
-   * Autopilot acts at the `compact` band of whichever profile applies, so a 1M
-   * session is compacted at 300k rather than being left to drift to 850k.
+   * The `Stop` hook asks at the `compact` band of whichever profile applies, so a
+   * 1M session is asked at 300k rather than being left to drift to 850k.
    */
   readonly thresholds: Thresholds;
   /** A state file older than this is treated as not describing the current work. */
@@ -37,13 +41,35 @@ export interface Settings {
    * governor you cannot see the state of is one you stop trusting.
    */
   readonly showPill: boolean;
+  /**
+   * Whether a session that checkpoints is enrolled without being asked.
+   *
+   * This is the on-by-default-or-opt-in choice. On, an agent that has used the
+   * checkpoint tool has shown it knows this system exists, and that is taken as
+   * consent. Off, nothing is inferred and a session is governed only when someone
+   * presses its pill. An explicit answer outranks either way round.
+   */
+  readonly autoEnrol: boolean;
+  /**
+   * Whether the plugin keeps its hooks registered in Claude Code for us.
+   *
+   * On by default, because the `Stop` hook is the only thing that ever asks a
+   * session to compact itself: without it this plugin records and shows charts and
+   * otherwise does nothing, which is a worse failure than an unexpected write —
+   * it looks like it is working. Off removes every entry it added.
+   *
+   * See install.server.ts for what it will and will not touch.
+   */
+  readonly installHooks: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  autopilot: false,
+  enabled: true,
   thresholds: DEFAULT_THRESHOLDS,
   freshStateMinutes: 30,
   showPill: true,
+  autoEnrol: true,
+  installHooks: true,
 };
 
 const filePath = () => join(dataDir(), "settings.json");
@@ -55,10 +81,15 @@ export async function readSettings(): Promise<Settings> {
   try {
     const raw = JSON.parse(await readFile(filePath(), "utf8")) as Partial<Settings>;
     cached = {
-      autopilot: raw.autopilot === true,
+      // Absent in every file written before v0.3. Those installs had `autopilot`,
+      // which meant "compact without being asked" and no longer exists; the
+      // feature they are upgrading into can only ask, so it starts on.
+      enabled: raw.enabled !== false,
       thresholds: normalizeThresholds(raw.thresholds),
       freshStateMinutes: clamp(raw.freshStateMinutes ?? DEFAULT_SETTINGS.freshStateMinutes, 1, 24 * 60),
       showPill: raw.showPill !== false,
+      autoEnrol: raw.autoEnrol !== false,
+      installHooks: raw.installHooks !== false,
     };
   } catch {
     cached = DEFAULT_SETTINGS;
@@ -69,10 +100,12 @@ export async function readSettings(): Promise<Settings> {
 export async function writeSettings(patch: Partial<Settings>): Promise<Settings> {
   const next: Settings = { ...(await readSettings()), ...patch };
   const settings: Settings = {
-    autopilot: next.autopilot === true,
+    enabled: next.enabled !== false,
     thresholds: normalizeThresholds(next.thresholds),
     freshStateMinutes: clamp(next.freshStateMinutes, 1, 24 * 60),
     showPill: next.showPill !== false,
+    autoEnrol: next.autoEnrol !== false,
+    installHooks: next.installHooks !== false,
   };
   await mkdir(dataDir(), { recursive: true });
   const target = filePath();
@@ -99,13 +132,14 @@ export function statePathFor(agentId: string): string {
 
 
 /**
- * Whether the governor may act on one agent, and who decided.
+ * Whether the governor may speak to one agent, and who decided.
  *
- * Enrolment is implicit by default: an agent that has written a state file has used
- * the checkpoint tool, and so knows this system exists. One that has not is never
- * steered, however full it gets. A person can override either way — that is what
- * the pill on the composer writes — and an explicit answer always outranks the
- * inferred one.
+ * Implicit by default: an agent that has written a state file has used the
+ * checkpoint tool, and so knows this system exists. One that has not is never
+ * spoken to, however full it gets. `autoEnrol` turns that inference off entirely,
+ * which is the difference between on-by-default and opt-in. A person can override
+ * either way — that is what the pill on the composer writes — and an explicit
+ * answer always outranks the inferred one.
  */
 export interface AgentEnrolment {
   readonly agentId: string;
@@ -172,9 +206,12 @@ export function setEnrolled(agentId: string, enrolled: boolean): Promise<AgentEn
  * and nobody has asked for it.
  */
 export async function listEnrolment(): Promise<AgentEnrolment[]> {
+  const { autoEnrol } = await readSettings();
   const resolved = new Map<string, AgentEnrolment>();
-  for (const agentId of await agentsWithState()) {
-    resolved.set(agentId, { agentId, enrolled: true, explicit: false });
+  if (autoEnrol) {
+    for (const agentId of await agentsWithState()) {
+      resolved.set(agentId, { agentId, enrolled: true, explicit: false });
+    }
   }
   for (const [agentId, enrolled] of Object.entries(await readOverrides())) {
     resolved.set(agentId, { agentId, enrolled, explicit: true });
@@ -182,7 +219,7 @@ export async function listEnrolment(): Promise<AgentEnrolment[]> {
   return [...resolved.values()];
 }
 
-/** How many agents the governor would act on. */
+/** How many agents the governor would speak to. */
 export async function countEnrolled(): Promise<number> {
   return (await listEnrolment()).filter((agent) => agent.enrolled).length;
 }
