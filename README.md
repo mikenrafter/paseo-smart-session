@@ -154,8 +154,6 @@ Every agent's composer carries a pill showing whether the governor is watching t
 it changes the answer. It is one icon — the composer track is a single line shared with Paseo's own
 pills — so state is carried by colour and spelled out on hover:
 
-![The Smart Compact pill, enrolled, next to Paseo's own Defer pill](docs/screenshots/smart-compact-pill.png)
-
 | Icon | Tooltip | Means |
 |---|---|---|
 | Accent | **Smart Compact on** | Enrolled. Will be asked, at a turn boundary, once it fills. |
