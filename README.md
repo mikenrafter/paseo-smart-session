@@ -1,6 +1,6 @@
 # paseo-smart-session
 
-[![Paseo](https://img.shields.io/badge/Paseo-%E2%89%A5%200.7.2-8A63D2?style=for-the-badge)](https://paseo.sh)
+[![Paseo](https://img.shields.io/badge/Paseo-%E2%89%A5%200.8.0-8A63D2?style=for-the-badge)](https://paseo.sh)
 [![Release](https://img.shields.io/github/v/release/tomgrin10/paseo-smart-session?display_name=tag&sort=semver&style=for-the-badge&label=release&color=6366f1)](https://github.com/tomgrin10/paseo-smart-session/releases/latest)
 [![License](https://img.shields.io/github/license/tomgrin10/paseo-smart-session?style=for-the-badge&color=2563eb)](LICENSE)
 
@@ -14,10 +14,10 @@ A trusted local [Paseo](https://paseo.sh) plugin, in two halves:
 
 ## Install
 
-Requires Paseo 0.7.2+ with plugins enabled (**Settings → Plugins**).
+Requires Paseo 0.8.0+ with plugins enabled (**Settings → Plugins**).
 
 ```bash
-paseo plugin add tomgrin10/paseo-smart-session --ref v0.3.0
+paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.0
 ```
 
 Paseo clones, compiles and starts it on the daemon machine — no package manager runs, and the plugin
@@ -38,7 +38,7 @@ The v0.2 rename changed the runtime id, so replace the installation once:
 
 ```bash
 paseo plugin remove super-session
-paseo plugin add tomgrin10/paseo-smart-session --ref v0.3.0
+paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.0
 ```
 
 On first start the plugin atomically moves `$PASEO_HOME/plugin-data/super-session/` to

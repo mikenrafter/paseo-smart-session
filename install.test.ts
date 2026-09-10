@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-import { reconcile } from "./install.server.ts";
+import { reconcile } from "./server/install.ts";
 
 const DIR = "/plugins/paseo-smart-session";
 
@@ -108,7 +108,7 @@ async function freshInstaller(paseoHome: string, claudeDir: string) {
   process.env.PASEO_HOME = paseoHome;
   process.env.CLAUDE_CONFIG_DIR = claudeDir;
   // settings.server.ts caches, so each case takes its own module instance.
-  return (await import(`./install.server.ts?case=${claudeDir}`)) as typeof import("./install.server.ts");
+  return (await import(`./server/install.ts?case=${claudeDir}`)) as typeof import("./server/install.ts");
 }
 
 test("the first load writes the hooks; the second writes nothing at all", async () => {
@@ -189,7 +189,7 @@ test("importing the installer writes nothing; only the load module does", async 
 
   await execFileAsync(
     process.execPath,
-    ["--experimental-strip-types", "--input-type=module", "-e", 'await import("./install.server.ts");'],
+    ["--experimental-strip-types", "--input-type=module", "-e", 'await import("./server/install.ts");'],
     { env: { ...process.env, PASEO_HOME: paseoHome, CLAUDE_CONFIG_DIR: claudeDir }, cwd: import.meta.dirname },
   );
 

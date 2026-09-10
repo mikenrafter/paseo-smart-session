@@ -3,7 +3,7 @@
  * one record per limit window occurrence — a "block".
  */
 
-import { effectiveAt, type UsageSample, type WindowSample } from "./usage.shared.ts";
+import { effectiveAt, type UsageSample, type WindowSample } from "./usage.ts";
 
 /**
  * How far two reported resets may differ and still be the same window.
@@ -11,7 +11,7 @@ import { effectiveAt, type UsageSample, type WindowSample } from "./usage.shared
  * The provider re-derives the reset instant on every read, so the same window
  * comes back as "…:59.873850" then "…:00.309167". Compared exactly, every refresh
  * looks like a rollover. (Learned the hard way in paseo-defer; see its
- * engine.server.ts:15.)
+ * `paseo-defer/server/engine.ts`.)
  */
 const SAME_WINDOW_TOLERANCE_MS = 120_000;
 

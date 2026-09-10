@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { smartCompactLabel } from "./format.shared.ts";
+import { smartCompactLabel } from "./shared/format.ts";
 
 /**
  * A fresh, isolated `$PASEO_HOME`, then a fresh copy of the module under test.
@@ -15,7 +15,7 @@ import { smartCompactLabel } from "./format.shared.ts";
  */
 async function withHome(): Promise<{
   home: string;
-  settings: typeof import("./settings.server.ts");
+  settings: typeof import("./server/settings.ts");
   checkpoint(agentId: string): void;
 }> {
   const home = mkdtempSync(join(tmpdir(), "ss-enrol-"));
@@ -24,7 +24,7 @@ async function withHome(): Promise<{
   mkdirSync(stateDir, { recursive: true });
   return {
     home,
-    settings: (await import(`./settings.server.ts?case=${home}`)) as typeof import("./settings.server.ts"),
+    settings: (await import(`./server/settings.ts?case=${home}`)) as typeof import("./server/settings.ts"),
     checkpoint(agentId: string) {
       writeFileSync(join(stateDir, `${agentId}.md`), "# Task state\n", "utf8");
     },

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { rampStep } from "./format.shared.ts";
-import { rollup } from "./spend.server.ts";
-import type { SpendBucket } from "./backfill.server.ts";
+import { rampStep } from "./shared/format.ts";
+import { rollup } from "./server/spend.ts";
+import type { SpendBucket } from "./server/backfill.ts";
 
 function bucket(partial: Partial<SpendBucket> & { hour: string }): SpendBucket {
   return {

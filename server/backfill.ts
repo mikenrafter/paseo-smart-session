@@ -17,7 +17,7 @@ import { mkdir, open, readFile, readdir, rename, stat, writeFile } from "node:fs
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
-import { dataDir } from "./store.server.ts";
+import { dataDir } from "./store.ts";
 
 /** One hour of spend, split the ways that let you act on it. */
 export interface SpendBucket {

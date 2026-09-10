@@ -1,194 +1,169 @@
-/**
- * Guards the plugin runtime boundary, which typecheck cannot see.
- *
- * Paseo compiles index.ts twice. For each target it deletes the other
- * runtime's imports and the registration calls that do not apply, but leaves
- * every other statement in place. So a server identifier used anywhere in
- * contribute()'s shared body survives with its import gone and throws a
- * ReferenceError at load, which silently drops every contribution.
- *
- * The client bundle is then executed against the same validation the app
- * applies in evaluatePluginClientBundle, so a registration Paseo would reject
- * at install time fails here instead.
- */
+/** Builds both v0.8 runtime entries and executes the client contribution. */
 import * as esbuild from "esbuild";
-import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  buildOptions,
-  filterEntrypoint,
-  findDanglingReferences,
-  instantiateBundle,
-} from "./check-lib.mjs";
+import { auditRuntimeBoundaries, buildOptions, instantiateBundle } from "./check-lib.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
-const ENTRY = resolve(DIR, "index.ts");
 
-/**
- * Executes the filtered client bundle the way the app does: a strict module
- * map that rejects anything the host does not provide, and a plugin object
- * that applies the app's validation. A permissive stub would pass
- * registrations Paseo rejects.
- */
 async function runClientBundle(code) {
   const zod = await import("zod");
-  const contracts = { defineRpc: (d) => d, defineAttachmentSource: (d) => d };
+  const contracts = {
+    defineRpc: (definition) => definition,
+    defineAttachmentSource: (definition) => definition,
+  };
   const stubs = {
     zod,
     react: {},
     "react/jsx-runtime": {},
     "react-native": {},
     "@tanstack/react-query": {},
-    "@getpaseo/plugin": { ...contracts, Icon: () => null },
-    "@getpaseo/plugin/react-native": { Icon: () => null, Modal: () => null, useToast: () => ({}) },
-    "@getpaseo/plugin/server": contracts,
+    "@getpaseo/plugin": contracts,
+    "@getpaseo/plugin/client": { useRpc: () => async () => ({}) },
+    "@getpaseo/plugin/client/react-native": {
+      Icon: () => null,
+      Modal: () => null,
+      useToast: () => ({ show() {}, error() {} }),
+    },
   };
   const exported = instantiateBundle(code, (id) => {
     if (!(id in stubs)) throw new Error(`Module "${id}" is not available in plugin client code`);
     return stubs[id];
   });
-  const contribute = exported?.default;
-  if (typeof contribute !== "function") throw new Error("index.ts must default-export a function");
+  if (typeof exported?.default !== "function") {
+    throw new Error("index.client.tsx must default-export a function");
+  }
 
   const summary = [];
-  const usedIds = new Map();
-  const surfaceIds = new Set();
+  const surfaces = new Set();
   const sidebarSurfaces = [];
-
-  const requireId = (value, what) => {
-    const id = typeof value === "string" ? value.trim() : "";
-    if (id === "") throw new Error(`Missing ${what}`);
-    const seen = usedIds.get(what);
-    if (seen === undefined) usedIds.set(what, new Set([id]));
-    else if (seen.has(id)) throw new Error(`Duplicate ${what}: ${id}`);
-    else seen.add(id);
-    return id;
-  };
+  const registrations = [];
   const requireText = (value, what) => {
     if (typeof value !== "string" || value.trim() === "") throw new Error(`Missing ${what}`);
   };
-  const requireFn = (value, what) => {
+  const requireFunction = (value, what) => {
     if (typeof value !== "function") throw new Error(`${what} is not a function`);
   };
-
-  const plugin = {
+  const removable = () => {
+    let removed = false;
+    return () => {
+      if (!removed) removed = true;
+    };
+  };
+  const client = {
+    paseo: {
+      agents: {
+        subscribe() { return removable(); },
+        async list() {
+          return { entries: [{ agent: { id: "agent-1", workspaceId: "workspace-1" } }] };
+        },
+      },
+    },
+    async rpc(contract) {
+      if (contract?.name === "smart-session.enrolment.state") {
+        return {
+          showPill: true,
+          enabled: true,
+          agents: [{ agentId: "agent-1", enrolled: true, explicit: true }],
+        };
+      }
+      return {};
+    },
     addSurface(id, Component) {
-      const surfaceId = requireId(id, "surface id");
-      requireFn(Component, `surface ${surfaceId}`);
-      surfaceIds.add(surfaceId);
-      summary.push(`addSurface(${surfaceId})`);
+      requireText(id, "surface id");
+      requireFunction(Component, `surface ${id}`);
+      surfaces.add(id);
+      summary.push(`addSurface(${id})`);
+      return removable();
     },
     addSidebarItem(item) {
-      const id = requireId(item?.id, "sidebar item id");
-      requireText(item?.title, `sidebar item ${id} title`);
-      requireText(item?.icon, `sidebar item ${id} icon`);
-      sidebarSurfaces.push({ id, surface: requireId(item?.surface, "sidebar surface id") });
-      summary.push(`addSidebarItem(${id})`);
-    },
-    addWorkspacePanel(panel) {
-      const id = requireId(panel?.id, "workspace panel id");
-      requireText(panel?.title, `panel ${id} title`);
-      requireText(panel?.icon, `panel ${id} icon`);
-      if (panel?.context !== "workspace" && panel?.context !== "agent") {
-        throw new Error(`Panel ${id} has an invalid context`);
-      }
-      for (const location of panel?.locations ?? []) {
-        if (location !== "workspace" && location !== "explorer") {
-          throw new Error(`Panel ${id} has an invalid location: ${location}`);
-        }
-      }
-      requireFn(panel?.Component, `panel ${id}`);
-      summary.push(`addWorkspacePanel(${id})`);
+      requireText(item?.id, "sidebar id");
+      requireText(item?.title, "sidebar title");
+      requireText(item?.icon, "sidebar icon");
+      requireText(item?.surface, "sidebar surface");
+      sidebarSurfaces.push(item.surface);
+      summary.push(`addSidebarItem(${item.id})`);
+      return removable();
     },
     addCommandCenterItem(item) {
-      const id = requireId(item?.id, "Command Center item id");
-      requireText(item?.title, `Command Center item ${id} title`);
-      requireText(item?.icon, `Command Center item ${id} icon`);
-      if (!["global", "workspace", "agent"].includes(item?.context)) {
-        throw new Error(`Command Center item ${id} has an invalid context`);
+      requireText(item?.id, "Command Center id");
+      requireText(item?.title, "Command Center title");
+      requireText(item?.icon, "Command Center icon");
+      requireFunction(item?.onSelect, `Command Center ${item.id} callback`);
+      summary.push(`addCommandCenterItem(${item.id})`);
+      return removable();
+    },
+    addComposerPill(item) {
+      requireText(item?.id, "composer pill id");
+      requireText(item?.workspaceId, "composer pill workspace");
+      requireText(item?.agentId, "composer pill agent");
+      requireText(item?.button?.title, "composer pill button title");
+      requireText(item?.button?.label, "composer pill button label");
+      requireFunction(item?.button?.icon, "composer pill button icon");
+      if (item?.button?.behavior?.kind !== "action") {
+        throw new Error("Composer pill must use an action descriptor");
       }
-      requireFn(item?.onSelect, `Command Center item ${id} callback`);
-      summary.push(`addCommandCenterItem(${id})`);
-    },
-    addClientSide(contribution) {
-      requireFn(contribution, "client-side contribution");
-      summary.push("addClientSide()");
-    },
-    addAttachmentSource(source) {
-      summary.push(`addAttachmentSource(${requireId(source?.id, "attachment source id")})`);
-    },
-    addTheme(theme) {
-      summary.push(`addTheme(${requireId(theme?.id, "theme id")})`);
-    },
-    addTimelineTransformer(transformer) {
-      const id = requireId(transformer?.id, "timeline transformer id");
-      summary.push(`addTimelineTransformer(${id})`);
-    },
-    addTimelineRenderer(renderer) {
-      const kind = requireId(renderer?.kind, "timeline renderer kind");
-      summary.push(`addTimelineRenderer(${kind})`);
-    },
-    handle() {
-      throw new Error("plugin.handle survived into the client bundle");
+      requireFunction(item.button.behavior.onPress, "composer pill descriptor callback");
+      // Local 0.8.0-beta.1 still validates these. The hybrid must keep both.
+      requireText(item?.title, "legacy composer pill title");
+      requireFunction(item?.Component, "legacy composer pill component");
+      requireFunction(item?.onPress, "legacy composer pill callback");
+      summary.push(`addComposerPill(${item.id})`);
+      let removed = false;
+      const registration = {
+        update(patch) {
+          if (!removed && patch.title !== undefined) requireText(patch.title, "updated pill title");
+        },
+        remove() { removed = true; },
+      };
+      registrations.push(registration);
+      return registration;
     },
   };
 
-  const cleanup = contribute(plugin);
-  if (typeof cleanup !== "function") throw new Error("contribute() must return a cleanup function");
-  for (const { id, surface } of sidebarSurfaces) {
-    if (!surfaceIds.has(surface)) {
-      throw new Error(`Sidebar item ${id} references a missing surface: ${surface}`);
-    }
+  const cleanup = exported.default(client);
+  if (typeof cleanup !== "function") throw new Error("client contribution must return cleanup");
+  await Promise.resolve();
+  await Promise.resolve();
+  for (const surface of sidebarSurfaces) {
+    if (!surfaces.has(surface)) throw new Error(`Sidebar references missing surface: ${surface}`);
   }
   await cleanup();
+  await cleanup();
+  for (const registration of registrations) {
+    registration.remove();
+    registration.remove();
+  }
   return summary;
 }
 
-async function checkTarget(target) {
-  const source = readFileSync(ENTRY, "utf8");
-  const { filtered, strippedBindings } = filterEntrypoint(source, target);
-  const dangling = findDanglingReferences(filtered, strippedBindings);
-  if (dangling.length > 0) {
-    for (const { name, from } of dangling) {
-      console.error(
-        `  ✗ ${target}: "${name}" is used in contribute() but its import ("${from}") is removed from this bundle`,
-      );
-    }
-    return false;
-  }
+console.log("Checking Paseo v0.8 runtime entries...");
+const boundaryFailures = auditRuntimeBoundaries(DIR);
+for (const failure of boundaryFailures) console.error(`  ✗ ${failure}`);
 
-  const built = await esbuild.build(buildOptions(ENTRY, DIR, filtered, target));
-
-  if (target === "server") {
-    // Executing the server bundle would start the real scheduler, so stop at a
-    // clean build plus the reference check above. check-teardown.mjs runs it.
-    console.log(`  ✓ ${target}: builds, no stripped-import references`);
-    return true;
-  }
-
-  const summary = await runClientBundle(built.outputFiles[0].text);
-  if (summary.length === 0) {
-    console.error(`  ✗ ${target}: contribute() registered nothing`);
-    return false;
-  }
-  console.log(`  ✓ ${target}: ${summary.join(", ")}`);
-  return true;
-}
-
-console.log("Checking plugin runtime boundary...");
-const results = [];
+let failed = boundaryFailures.length > 0;
 for (const target of ["client", "server"]) {
+  const entry = resolve(DIR, `index.${target}.${target === "client" ? "tsx" : "ts"}`);
   try {
-    results.push(await checkTarget(target));
+    const built = await esbuild.build(buildOptions(entry, DIR, target));
+    if (target === "client") {
+      const summary = await runClientBundle(built.outputFiles[0].text);
+      if (!summary.some((item) => item.startsWith("addComposerPill"))) {
+        throw new Error("client entry did not register its composer pill");
+      }
+      console.log(`  ✓ client: ${summary.join(", ")}`);
+    } else {
+      console.log("  ✓ server: builds from index.server.ts");
+    }
   } catch (error) {
     console.error(`  ✗ ${target}: ${error instanceof Error ? error.message : String(error)}`);
-    results.push(false);
+    failed = true;
   }
 }
-if (results.includes(false)) {
-  console.error("Runtime boundary check failed.");
+
+if (failed) {
+  console.error("Runtime entry check failed.");
   process.exitCode = 1;
 } else {
-  console.log("Runtime boundary OK.");
+  console.log("Runtime entries OK.");
 }

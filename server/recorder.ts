@@ -14,9 +14,9 @@ import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { scanSpend } from "./backfill.server.ts";
-import { readAgents, readProviderUsage, withDaemon } from "./daemon.server.ts";
-import { lifecycle } from "./lifecycle.shared.ts";
+import { scanSpend } from "./backfill.ts";
+import { readAgents, readProviderUsage, withDaemon } from "./daemon.ts";
+import { lifecycle } from "../shared/lifecycle.ts";
 import {
   appendContext,
   appendUsage,
@@ -24,8 +24,8 @@ import {
   newestUsage,
   noteNewestUsage,
   type ContextSample,
-} from "./store.server.ts";
-import { fetchUpstreamUsage } from "./upstream.server.ts";
+} from "./store.ts";
+import { fetchUpstreamUsage } from "./upstream.ts";
 import {
   acceptReading,
   effectiveAt,
@@ -34,7 +34,7 @@ import {
   fromUpstream,
   isWorthRecording,
   type UsageSample,
-} from "./usage.shared.ts";
+} from "../shared/usage.ts";
 
 const TICK_MS = 60_000;
 

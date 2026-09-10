@@ -9,8 +9,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { dataDir } from "./store.server.ts";
-import { DEFAULT_THRESHOLDS, normalizeThresholds, type Thresholds } from "./thresholds.shared.ts";
+import { dataDir } from "./store.ts";
+import { DEFAULT_THRESHOLDS, normalizeThresholds, type Thresholds } from "../shared/thresholds.ts";
 
 export interface Settings {
   /**
@@ -58,7 +58,7 @@ export interface Settings {
    * otherwise does nothing, which is a worse failure than an unexpected write —
    * it looks like it is working. Off removes every entry it added.
    *
-   * See install.server.ts for what it will and will not touch.
+   * See `server/install.ts` for what it will and will not touch.
    */
   readonly installHooks: boolean;
 }

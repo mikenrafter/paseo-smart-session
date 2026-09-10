@@ -16,11 +16,11 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { readAgents, sendToAgent, withDaemon, type AgentRow } from "./daemon.server.ts";
-import { compactionInstructions, resumeInstructions, type CompactionRequest } from "./governor.shared.ts";
-import { lifecycle } from "./lifecycle.shared.ts";
-import { readSettings } from "./settings.server.ts";
-import { dataDir } from "./store.server.ts";
+import { readAgents, sendToAgent, withDaemon, type AgentRow } from "./daemon.ts";
+import { compactionInstructions, resumeInstructions, type CompactionRequest } from "../shared/governor.ts";
+import { lifecycle } from "../shared/lifecycle.ts";
+import { readSettings } from "./settings.ts";
+import { dataDir } from "./store.ts";
 
 const TICK_MS = 15_000;
 

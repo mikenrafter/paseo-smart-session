@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 
-import { resumeInstructions } from "./governor.shared.ts";
-import { DEFAULT_THRESHOLDS, profileFor } from "./thresholds.shared.ts";
+import { resumeInstructions } from "./shared/governor.ts";
+import { DEFAULT_THRESHOLDS, profileFor } from "./shared/thresholds.ts";
 
 const execFileAsync = promisify(execFile);
 

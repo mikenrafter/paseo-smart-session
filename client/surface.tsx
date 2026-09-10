@@ -1,13 +1,13 @@
-import { Icon, type PluginSurfaceProps, useRpc } from "@getpaseo/plugin";
-import { useToast } from "@getpaseo/plugin/react-native";
+import { type PluginSurfaceProps, useRpc } from "@getpaseo/plugin/client";
+import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
-import { DailyBars, HourHeatmap, RankedTotals } from "./charts.client";
-import { refreshPills } from "./pill.client";
-import { enrolmentState } from "./governor.shared";
-import { formatRelative, formatTokens, isInteresting, windowLabel } from "./format.shared";
+import { DailyBars, HourHeatmap, RankedTotals } from "./charts";
+import { refreshPills } from "./pill";
+import { enrolmentState } from "../shared/governor";
+import { formatRelative, formatTokens, isInteresting, windowLabel } from "../shared/format";
 import {
   budgetStatus,
   contextStatus,
@@ -15,7 +15,7 @@ import {
   installStatus,
   setSettings,
   spendSummary,
-} from "./smart-session.shared";
+} from "../shared/smart-session";
 
 type Theme = PluginSurfaceProps["theme"];
 

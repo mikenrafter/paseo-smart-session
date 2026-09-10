@@ -1,12 +1,11 @@
-import type { PluginContext } from "@getpaseo/plugin";
+import type { PluginServerContext } from "@getpaseo/plugin/server";
 
-import { readAgents, withDaemon } from "./daemon.server.ts";
-import { lifecycle } from "./lifecycle.shared.ts";
-import { newestUsage, readUsage, dataDir } from "./store.server.ts";
-import { contextGrowth, projectFull } from "./growth.server.ts";
-import { countEnrolled, listEnrolment, readSettings, setEnrolled, writeSettings } from "./settings.server.ts";
-import { profileFor } from "./thresholds.shared.ts";
-import { summarizeSpend } from "./spend.server.ts";
+import { readAgents, withDaemon } from "./server/daemon.ts";
+import { contextGrowth, projectFull } from "./server/growth.ts";
+import { install } from "./server/install.ts";
+import { summarizeSpend } from "./server/spend.ts";
+import { countEnrolled, listEnrolment, readSettings, setEnrolled, writeSettings } from "./server/settings.ts";
+import { dataDir, newestUsage, readUsage } from "./server/store.ts";
 import {
   budgetStatus,
   contextStatus,
@@ -14,7 +13,7 @@ import {
   installStatus,
   setSettings,
   spendSummary,
-} from "./smart-session.shared.ts";
+} from "./shared/smart-session.ts";
 
 import {
   cancelCompaction,
@@ -22,25 +21,24 @@ import {
   listCompactions,
   requestCompaction,
   setEnrolment,
-} from "./governor.shared.ts";
-import { segmentBlocks, burnRatePctPerHour, projectedExhaustion } from "./blocks.shared.ts";
-import { effectiveAt } from "./usage.shared.ts";
-import { SmartSessionSurface } from "./surface.client";
-import { contributeClient, refreshPills } from "./pill.client";
+} from "./shared/governor.ts";
+import { burnRatePctPerHour, projectedExhaustion, segmentBlocks } from "./shared/blocks.ts";
+import { lifecycle } from "./shared/lifecycle.ts";
+import { profileFor } from "./shared/thresholds.ts";
+import { effectiveAt } from "./shared/usage.ts";
 
 // Importing the recorder for its side effect: it starts on load and records
-// whether or not anything is looking at it. See recorder.server.ts.
-import "./recorder.server.ts";
+// whether or not anything is looking at it. See server/recorder.ts.
+import "./server/recorder.ts";
 // Same: the governor owns the compaction queue and its delivery timer.
-import { queue } from "./governor.server.ts";
+import { queue } from "./server/governor.ts";
 // Same again: this one registers the plugin's hooks with Claude Code on load. The
 // `Stop` hook is what asks a session to compact itself, so an install without it
 // reports "on" and does nothing at all.
-import "./install-on-load.server.ts";
-import { install } from "./install.server.ts";
+import "./server/install-on-load.ts";
 
-export default function contribute(plugin: PluginContext) {
-  plugin.handle(budgetStatus, async () => {
+export default function contribute(server: PluginServerContext) {
+  server.handle(budgetStatus, async () => {
     try {
       const since = Date.now() - 14 * 24 * 60 * 60 * 1000;
       const samples = await readUsage({ sinceMs: since });
@@ -90,7 +88,7 @@ export default function contribute(plugin: PluginContext) {
     }
   });
 
-  plugin.handle(contextStatus, async ({ agentId }) => {
+  server.handle(contextStatus, async ({ agentId }) => {
     try {
       const rows = await withDaemon((client) => readAgents(client));
       const growth = await contextGrowth();
@@ -119,7 +117,7 @@ export default function contribute(plugin: PluginContext) {
     }
   });
 
-  plugin.handle(spendSummary, async ({ days }) => {
+  server.handle(spendSummary, async ({ days }) => {
     try {
       return { summary: await summarizeSpend({ days }), error: null };
     } catch (error) {
@@ -134,12 +132,12 @@ export default function contribute(plugin: PluginContext) {
     }
   });
 
-  plugin.handle(getSettings, async () => ({
+  server.handle(getSettings, async () => ({
     settings: await readSettings(),
     enrolledAgents: await countEnrolled(),
   }));
 
-  plugin.handle(setSettings, async (patch) => {
+  server.handle(setSettings, async (patch) => {
     const settings = await writeSettings(patch);
     // Reconciled here as well as on load, so turning the switch off removes the
     // hooks immediately rather than at the next reload.
@@ -147,13 +145,13 @@ export default function contribute(plugin: PluginContext) {
     return { settings };
   });
 
-  plugin.handle(installStatus, async () => ({ report: await install() }));
+  server.handle(installStatus, async () => ({ report: await install() }));
 
-  plugin.handle(requestCompaction, async ({ agentId, reason, statePath }) => ({
+  server.handle(requestCompaction, async ({ agentId, reason, statePath }) => ({
     request: await queue.add({ agentId, reason, statePath: statePath ?? null }),
   }));
 
-  plugin.handle(listCompactions, async ({ agentId }) => {
+  server.handle(listCompactions, async ({ agentId }) => {
     const items = await queue.list();
     return {
       items: (agentId === undefined ? items : items.filter((item) => item.agentId === agentId)).sort(
@@ -162,7 +160,7 @@ export default function contribute(plugin: PluginContext) {
     };
   });
 
-  plugin.handle(cancelCompaction, async ({ id }) => {
+  server.handle(cancelCompaction, async ({ id }) => {
     const updated = await queue.update(id, {
       state: "cancelled",
       settledAt: new Date().toISOString(),
@@ -170,53 +168,17 @@ export default function contribute(plugin: PluginContext) {
     return { ok: updated !== null };
   });
 
-  plugin.handle(enrolmentState, async () => {
+  server.handle(enrolmentState, async () => {
     const settings = await readSettings();
     return { showPill: settings.showPill, enabled: settings.enabled, agents: await listEnrolment() };
   });
 
-  plugin.handle(setEnrolment, async ({ agentId, enrolled }) => ({
+  server.handle(setEnrolment, async ({ agentId, enrolled }) => ({
     agent: await setEnrolled(agentId, enrolled),
   }));
 
-  plugin.addSurface("overview", SmartSessionSurface);
-  plugin.addSidebarItem({
-    id: "smart-session",
-    title: "Smart Session",
-    icon: "Gauge",
-    surface: "overview",
-  });
-
-  plugin.addClientSide(contributeClient);
-
-  plugin.addCommandCenterItem({
-    id: "smart-session-open",
-    title: "Show plan usage and agent context",
-    icon: "Gauge",
-    keywords: ["usage", "budget", "limit", "context", "tokens", "compact"],
-    context: "global",
-    onSelect({ openSurface }) {
-      openSurface("overview");
-    },
-  });
-
-  plugin.addCommandCenterItem({
-    id: "smart-session-pill",
-    title: "Show or hide the smart-compact pill",
-    icon: "ToggleLeft",
-    keywords: ["pill", "compact", "smart", "governor", "enrol"],
-    context: "global",
-    async onSelect({ rpc }) {
-      const { settings } = await rpc(getSettings, {});
-      await rpc(setSettings, { showPill: !settings.showPill });
-      await refreshPills(() => rpc(enrolmentState, {}));
-    },
-  });
-
-  // Releases the recorder through a shared object rather than by naming
-  // recorder.server: Paseo strips server imports from the client bundle but keeps
-  // the surrounding code, so a server identifier here would break every
-  // contribution. Skipping this stops Paseo's teardown from ever completing.
+  // The recorder and governor register their timers in this shared lifecycle.
+  // Paseo waits for this cleanup before stopping the plugin subprocess.
   return async () => {
     const teardowns = lifecycle.teardowns.splice(0);
     for (const teardown of teardowns) await teardown();

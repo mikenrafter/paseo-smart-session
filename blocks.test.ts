@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { burnRatePctPerHour, projectedExhaustion, segmentBlocks } from "./blocks.shared.ts";
-import type { UsageSample } from "./usage.shared.ts";
+import { burnRatePctPerHour, projectedExhaustion, segmentBlocks } from "./shared/blocks.ts";
+import type { UsageSample } from "./shared/usage.ts";
 
 function sample(at: string, pct: number, resetsAt: string | null): UsageSample {
   return {

@@ -11,7 +11,7 @@ import {
   isWorthRecording,
   toPercent,
   type UsageSample,
-} from "./usage.shared.ts";
+} from "./shared/usage.ts";
 
 const CLAUDE_JSON = {
   fetchedAtMs: 1788558890772,

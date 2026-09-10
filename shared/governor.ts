@@ -8,7 +8,7 @@
  * to end: 39,325 -> 6,160 tokens with instructions honoured (RESEARCH.md §7.1).
  */
 
-import { defineRpc } from "@getpaseo/plugin/server";
+import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
 export const CompactionStateSchema = z.enum(["pending", "sending", "sent", "failed", "cancelled"]);

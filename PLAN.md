@@ -33,7 +33,7 @@ Phase 1 is deliberately ~150 lines with no UI. Ship it before designing a single
 ## 1. Architecture
 
 ```
-                    ┌──────────────── daemon (Paseo plugin, *.server.ts) ────────────────┐
+                    ┌──────────── daemon (Paseo plugin, index.server.ts + server/) ─────┐
   ~/.claude.json ──▶│  Recorder      fs.watch cachedUsageUtilization                     │
   daemon client ───▶│                poll listProviderUsage() every 60s                  │──▶ usage.jsonl
   agent snapshots ─▶│                per-agent contextWindowUsed/Max on change           │──▶ context.jsonl
@@ -256,7 +256,7 @@ subagents, or stop and wait for the window to roll (which `paseo-defer` can alre
 Added 2026-09-05 after seeing a 1M session sit at 400k without complaint. What degrades recall and
 what costs money is the absolute prefix re-read every turn, so the bands are per window size:
 a 400k+ window compacts at **30%** (300k tokens), a smaller one at 85% (170k). One percentage for
-both would either nag a 200k session or let a 1M one drift for hours. `thresholds.shared.ts` holds
+both would either nag a 200k session or let a 1M one drift for hours. `shared/thresholds.ts` holds
 the profiles; the hook, the agent tools, the projection and autopilot all read them from
 `settings.json`.
 
@@ -266,14 +266,14 @@ Phases 1–3 and 4–7 are independent after Phase 1; 4 doesn't need 3.
 
 | File | Job |
 |---|---|
-| `usage.shared.ts` | normalize all three usage sources onto one id space; the freshness/acceptance gate |
-| `blocks.shared.ts` | segment samples into per-window blocks; burn rate; projected exhaustion |
-| `store.server.ts` | append-only JSONL logs under `$PASEO_HOME/plugin-data/smart-session/` |
-| `daemon.server.ts` | borrowed Paseo daemon client: provider usage, agent context, send-to-agent |
-| `recorder.server.ts` | the sampler loop |
-| `growth.server.ts` | context growth rate per agent, measured from recorded history |
-| `governor.shared.ts` / `governor.server.ts` | compaction contracts, instruction template, queue, delivery, grading |
-| `surface.client.tsx` | the sidebar surface |
+| `shared/usage.ts` | normalize all three usage sources onto one id space; the freshness/acceptance gate |
+| `shared/blocks.ts` | segment samples into per-window blocks; burn rate; projected exhaustion |
+| `server/store.ts` | append-only JSONL logs under `$PASEO_HOME/plugin-data/smart-session/` |
+| `server/daemon.ts` | borrowed Paseo daemon client: provider usage, agent context, send-to-agent |
+| `server/recorder.ts` | the sampler loop |
+| `server/growth.ts` | context growth rate per agent, measured from recorded history |
+| `shared/governor.ts` / `server/governor.ts` | compaction contracts, instruction template, queue, delivery, grading |
+| `client/surface.tsx` | the sidebar surface |
 | `mcp.mjs` | the agent-facing MCP server |
 | `hooks/context-threshold.mjs` | `PostToolUse`: band warnings, and fallback delivery of the compaction pointer |
 | `hooks/post-compact.mjs` | `PostCompact` records and queues; `SessionStart:compact` injects |

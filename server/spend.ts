@@ -5,7 +5,7 @@
  * a thousand buckets and a panel needs about forty numbers.
  */
 
-import { readSpend, scanSpend, type SpendBucket } from "./backfill.server.ts";
+import { readSpend, scanSpend, type SpendBucket } from "./backfill.ts";
 
 /** Tokens that cost something. Cache reads are excluded — they are the cheap part. */
 function billable(bucket: SpendBucket): number {

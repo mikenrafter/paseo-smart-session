@@ -3,11 +3,11 @@
 ## Project
 
 - This is the trusted, unsandboxed Paseo plugin `smart-session` — note the id is `smart-session`
-  while the repository and package are `paseo-smart-session`. Minimum supported Paseo is 0.7.2.
+  while the repository and package are `paseo-smart-session`. Minimum supported Paseo is 0.8.0.
 - It is two halves in one daemon process: a **meter** that records plan-usage history, and a
   **governor** that reads each agent's context occupancy and compacts a session on request.
 - Check the current plugin docs at `https://paseo.sh/docs/plugins.md` and
-  `https://paseo.sh/docs/plugins/reference.md` before changing runtime code.
+  `https://paseo.sh/docs/plugins/v0.8/reference.md` before changing runtime code.
 - `RESEARCH.md` is the evidence base — every capability claim in `PLAN.md` and in the code comments
   points at a section of it. If you discover something that contradicts it, correct it there rather
   than working around it in code.
@@ -26,36 +26,33 @@
   recorder and a second governor over the same files.
 - Preserve the on-disk shapes: `usage-YYYY-MM.jsonl`, `context-YYYY-MM.jsonl`, `settings.json`,
   `enrolment.json`, `compactions.json`, `state/<agentId>.md`. Migrate rather than break them.
-- `store.server.ts` owns the one-time v0.1 `super-session` to `smart-session` directory migration.
+- `server/store.ts` owns the one-time v0.1 `super-session` to `smart-session` directory migration.
   The old name is allowed only in that migration, its regression tests, and upgrade documentation.
 
 ## Code boundaries
 
-- Keep `index.ts` focused on contribution wiring.
-- `*.client.tsx`: React Native UI and client hooks. Use `theme.colors` for text and backgrounds and
+- Keep `index.client.tsx` and `index.server.ts` focused on contribution wiring.
+- `client/`: React Native UI and client hooks. Use `theme.colors` for text and backgrounds and
   `layout.compact` for responsive spacing.
-- `*.server.ts`: Node APIs, filesystem access, daemon connections, backend behaviour.
-- `*.shared.ts`: Zod RPC contracts and plain values safe in both runtimes.
-- Paseo compiles `index.ts` twice and deletes the other runtime's imports and registrations, keeping
-  every other statement. A server identifier left in `contribute()`'s shared body therefore survives
-  with its import gone and throws at load, which silently drops **every** contribution.
-  `check-bundles.mjs` is what catches that; keep `check-lib.mjs` aligned with the Paseo version in
-  the README badge, since it models Paseo's compiler.
+- `server/`: Node APIs, filesystem access, daemon connections, backend behaviour.
+- `shared/`: Zod RPC contracts and plain values safe in both runtimes.
+- Paseo compiles the two runtime entries independently. `check-bundles.mjs` guards those directory
+  boundaries and registration contracts.
 - Add nothing to `dependencies`. The server bundle must compile with no installed packages or
-  `paseo plugin add` breaks; `daemon.server.ts` assembles its specifier at runtime and borrows
+  `paseo plugin add` breaks; `server/daemon.ts` assembles its specifier at runtime and borrows
   Paseo's own daemon client from the host for exactly that reason — which also keeps the protocol
   version identical to the daemon's. `check-gitinstall.mjs` enforces it.
 - Keep daemon connections short-lived. A long-lived socket in the plugin subprocess keeps the event
   loop alive and hangs Paseo's "Stopping plugin" step, which wedges reload for the life of the
-  daemon. Every timer and resource must be released through `lifecycle.shared.ts`;
+  daemon. Every timer and resource must be released through `shared/lifecycle.ts`;
   `check-teardown.mjs` enforces it.
-- `install.server.ts` writes to `~/.claude/settings.json`, which the plugin does not own. It may only
+- `server/install.ts` writes to `~/.claude/settings.json`, which the plugin does not own. It may only
   add, update or remove entries whose command points at this checkout's `hooks/*.mjs`; it must never
   write a path it has not confirmed exists, must not write at all when reconciling changes nothing,
   and must leave a malformed file alone rather than rewriting it from a partial parse. MCP
   registration goes through `claude mcp add-json` — never edit `~/.claude.json`, which holds
   credentials.
-- The load-time call lives in `install-on-load.server.ts`, not in `install.server.ts`. Importing the
+- The load-time call lives in `server/install-on-load.ts`, not in `server/install.ts`. Importing the
   reconciler must stay free of side effects, or a test that imports it writes to the machine's real
   Claude Code settings — which is not hypothetical; it happened, and `install.test.ts` has the
   regression test for it.
@@ -67,10 +64,10 @@
   is rejected wholesale and injects nothing (`RESEARCH.md` §3.3); it records and queues, and
   `SessionStart` with `source: "compact"` speaks. The two fire milliseconds apart for the same
   compaction, so the delivered-marker check is load-bearing, not defensive.
-- Enrolment is resolved in `settings.server.ts`: an explicit answer in `enrolment.json` outranks the
+- Enrolment is resolved in `server/settings.ts`: an explicit answer in `enrolment.json` outranks the
   state-file inference in both directions. Toggling is read-modify-write over one file, so it goes
   through the serializer — concurrent toggles otherwise lose one another.
-- `pill.client.tsx` owns the composer pill and the `addClientSide` entrypoint. Pill state lives in a
+- `client/pill.tsx` owns the composer pill. Pill state lives in a
   module-level store because the pill, its press, the Command Center item and the surface toggle are
   all in the one client bundle; that is what makes a toggle redraw immediately instead of waiting out
   a poll. A registration bakes in the workspace and cannot be patched, so an agent that moves

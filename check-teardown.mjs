@@ -15,10 +15,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { filterEntrypoint, SDK_SPECIFIERS, unusedPlatformModulePlugin } from "./check-lib.mjs";
+import { SDK_SPECIFIERS } from "./check-lib.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
-const ENTRY = resolve(DIR, "index.ts");
+const ENTRY = resolve(DIR, "index.server.ts");
 const EXIT_BUDGET_MS = 10_000;
 
 /**
@@ -39,15 +39,15 @@ const stubSdkModules = {
   },
 };
 
-const { filtered } = filterEntrypoint(readFileSync(ENTRY, "utf8"), "server");
 const built = await esbuild.build({
-  stdin: { contents: filtered, loader: "tsx", resolveDir: DIR, sourcefile: ENTRY },
+  entryPoints: [ENTRY],
+  absWorkingDir: DIR,
   bundle: true,
   write: false,
   format: "cjs",
   platform: "node",
   target: "node20",
-  plugins: [stubSdkModules, unusedPlatformModulePlugin("server")],
+  plugins: [stubSdkModules],
   logLevel: "silent",
 });
 

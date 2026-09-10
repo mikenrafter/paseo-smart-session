@@ -12,7 +12,7 @@ import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { UsageSample } from "./usage.shared.ts";
+import type { UsageSample } from "../shared/usage.ts";
 
 const DATA_DIRECTORY = "smart-session";
 const LEGACY_DATA_DIRECTORY = "super-session";

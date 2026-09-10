@@ -88,6 +88,8 @@ export async function fetchUpstreamUsage(): Promise<UpstreamResult> {
   const token = await readAccessToken();
   if (token === null) return { kind: "unavailable", reason: "no Claude credentials on this machine" };
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(USAGE_URL, {
@@ -96,10 +98,12 @@ export async function fetchUpstreamUsage(): Promise<UpstreamResult> {
         Accept: "application/json",
         "anthropic-beta": OAUTH_BETA,
       },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: controller.signal,
     });
   } catch (error) {
     return { kind: "unavailable", reason: error instanceof Error ? error.message : String(error) };
+  } finally {
+    clearTimeout(timeout);
   }
 
   if (response.status === 401 || response.status === 403) return { kind: "needs-auth" };

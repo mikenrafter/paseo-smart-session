@@ -91,7 +91,7 @@ export async function withDaemon<T>(work: (client: DaemonClient) => Promise<T>):
  * The raw `provider.usage.list` payload.
  *
  * Deliberately untyped past `unknown`: it goes straight into the normalizer in
- * usage.shared.ts, which is the one place that knows how to read it, and which
+ * `shared/usage.ts`, which is the one place that knows how to read it, and which
  * tolerates a daemon that renames a field.
  */
 export async function readProviderUsage(client: DaemonClient): Promise<unknown> {

@@ -4,19 +4,16 @@
  * A separate module from `install.server.ts` for two reasons, and both of them
  * matter more than the four lines saved by merging them.
  *
- * Paseo compiles `index.ts` twice and deletes the other runtime's *imports and
- * registrations*, keeping every other statement — so calling `install()` from
- * `contribute()`'s shared body would leave a call to a stripped identifier in the
- * client bundle, which throws at load and silently drops every contribution the
- * plugin makes. A side-effect import is removed whole. `check-bundles.mjs` exists
- * for this, and caught exactly this.
+ * Paseo compiles the server entry independently, so the load-time side effect
+ * belongs here and is imported only by `index.server.ts`. `check-bundles.mjs`
+ * guards that runtime boundary.
  *
  * And it keeps `install.server.ts` free of side effects, so a test can import the
  * reconciler without a module-level call racing it — or worse, writing to the
  * machine's real Claude Code settings just because something imported a function.
  */
 
-import { install } from "./install.server.ts";
+import { install } from "./install.ts";
 
 void install()
   .then((report) => {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { migrateLegacyData } from "./store.server.ts";
+import { migrateLegacyData } from "./server/store.ts";
 
 test("the v0.1 data directory moves intact to Smart Session", () => {
   const home = mkdtempSync(join(tmpdir(), "smart-session-migration-"));

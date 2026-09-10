@@ -1,15 +1,12 @@
 /**
  * Context growth, measured from recorded history.
  *
- * Lives in its own `*.server` module rather than in index.ts: Paseo strips server
- * imports from the client bundle but keeps the surrounding statements, so a helper
- * *declared* in the entry point's shared body would survive there with its import
- * deleted — a ReferenceError on load that silently drops every contribution.
- * Referenced only from inside `plugin.handle(...)` bodies, which are removed whole.
+ * Lives in the server runtime rather than in the entry so its history and
+ * filesystem dependencies can never cross into the client bundle.
  */
 
-import { readContext } from "./store.server.ts";
-import { profileFor, type Thresholds } from "./thresholds.shared.ts";
+import { readContext } from "./store.ts";
+import { profileFor, type Thresholds } from "../shared/thresholds.ts";
 
 /**
  * How fast each agent's context is filling, in tokens per hour.
@@ -68,4 +65,3 @@ export function projectFull(
   if (room <= 0) return new Date().toISOString();
   return new Date(Date.now() + (room / ratePerHour) * 3_600_000).toISOString();
 }
-

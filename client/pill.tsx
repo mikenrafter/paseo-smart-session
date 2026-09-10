@@ -17,12 +17,13 @@
  * outright instead.
  */
 
-import { Icon, type PluginClientContext, type PluginComposerPillProps } from "@getpaseo/plugin";
+import type { PluginClientContext, PluginHostProps } from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
 
-import { smartCompactLabel } from "./format.shared";
-import { enrolmentState, setEnrolment, type EnrolmentState } from "./governor.shared";
+import { smartCompactLabel } from "../shared/format";
+import { enrolmentState, setEnrolment, type EnrolmentState } from "../shared/governor";
 
 /** How often the client re-reads enrolment, for changes made somewhere else. */
 const REFRESH_MS = 20_000;
@@ -105,7 +106,9 @@ export async function refreshPills(fetch: () => Promise<EnrolmentState>): Promis
  *
  * Paseo owns the pressable, the border and the spinner; this owns what is in it.
  */
-export function AutoCompactPill({ theme, agentId }: PluginComposerPillProps) {
+type LegacyPillProps = PluginHostProps & { workspaceId: string; agentId: string };
+
+export function AutoCompactPill({ theme, agentId }: LegacyPillProps) {
   const current = useSyncExternalStore(subscribe, snapshot, snapshot);
   const [tooltip, setTooltip] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -180,42 +183,103 @@ export function AutoCompactPill({ theme, agentId }: PluginComposerPillProps) {
   );
 }
 
+/**
+ * The v0.8 button-descriptor icon. The host owns its tooltip and interaction;
+ * this component only paints the current state inside the icon slot.
+ */
+function AutoCompactIcon({
+  theme,
+  agentId,
+  size,
+}: PluginHostProps & { agentId: string; size: number; color: string }) {
+  const current = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const color = current.enrolled.has(agentId) ? theme.colors.accent : theme.colors.foregroundMuted;
+  return <Icon name="FoldVertical" size={size} color={color} />;
+}
+
 /** The lean shape this needs from the agent list, which carries far more. */
 interface AgentListing {
   readonly entries?: readonly { readonly agent?: { id?: string; workspaceId?: string | null } }[];
 }
 
+/**
+ * The published 0.8 descriptor API returns this handle. The 0.8.0-beta.1 npm
+ * package and app still return the legacy remover function, so registrations
+ * carry both input shapes and this adapter accepts either result. Remove these
+ * legacy fields once the beta client and SDK catch up with the deployed docs.
+ */
+interface PillRegistration {
+  update(patch: { title?: string; label?: string; visible?: boolean; disabled?: boolean }): void;
+  remove(): void;
+}
+
+type PillHandle = (() => void) | PillRegistration;
+
+function removePill(handle: PillHandle): void {
+  if (typeof handle === "function") handle();
+  else handle.remove();
+}
+
+function updatePill(handle: PillHandle, title: string): void {
+  if (typeof handle !== "function") handle.update({ title });
+}
+
 export function contributeClient(client: PluginClientContext) {
   /** Every agent this app knows of, and its pill registration while one is up. */
-  const tracked = new Map<string, { workspaceId: string; remove: (() => void) | null }>();
+  const tracked = new Map<string, { workspaceId: string; handle: PillHandle | null }>();
 
-  function register(agentId: string, entry: { workspaceId: string; remove: (() => void) | null }): void {
-    entry.remove = client.addComposerPill({
+  function register(agentId: string, entry: { workspaceId: string; handle: PillHandle | null }): void {
+    const toggle = async () => {
+      const { agent } = await client.rpc(setEnrolment, {
+        agentId,
+        enrolled: !snapshot().enrolled.has(agentId),
+      });
+      const enrolled = new Set(snapshot().enrolled);
+      if (agent.enrolled) enrolled.add(agent.agentId);
+      else enrolled.delete(agent.agentId);
+      publish({ ...snapshot(), enrolled });
+    };
+    const title = smartCompactLabel({ enrolled: snapshot().enrolled.has(agentId) });
+    const addComposerPill = client.addComposerPill as unknown as (contribution: {
+      id: string;
+      workspaceId: string;
+      agentId: string;
+      button: {
+        title: string;
+        icon: typeof AutoCompactIcon;
+        label: string;
+        behavior: { kind: "action"; onPress: () => Promise<void> };
+      };
+      title: string;
+      Component: typeof AutoCompactPill;
+      onPress: () => Promise<void>;
+    }) => PillHandle;
+    entry.handle = addComposerPill({
       id: "smart-compact",
-      title: "Smart compact",
       workspaceId: entry.workspaceId,
       agentId,
-      Component: AutoCompactPill,
-      async onPress() {
-        const { agent } = await client.rpc(setEnrolment, {
-          agentId,
-          enrolled: !snapshot().enrolled.has(agentId),
-        });
-        const enrolled = new Set(snapshot().enrolled);
-        if (agent.enrolled) enrolled.add(agent.agentId);
-        else enrolled.delete(agent.agentId);
-        publish({ ...snapshot(), enrolled });
+      button: {
+        title,
+        icon: AutoCompactIcon,
+        label: "Smart compact",
+        behavior: { kind: "action", onPress: toggle },
       },
+      // 0.8.0-beta.1 compatibility; ignored by the documented descriptor host.
+      title,
+      Component: AutoCompactPill,
+      onPress: toggle,
     });
   }
 
   /** Brings the registrations in line with the store, whichever way it moved. */
   function sync(): void {
     for (const [agentId, entry] of tracked) {
-      if (state.showPill && entry.remove === null) register(agentId, entry);
-      else if (!state.showPill && entry.remove !== null) {
-        entry.remove();
-        entry.remove = null;
+      if (state.showPill && entry.handle === null) register(agentId, entry);
+      else if (!state.showPill && entry.handle !== null) {
+        removePill(entry.handle);
+        entry.handle = null;
+      } else if (entry.handle !== null) {
+        updatePill(entry.handle, smartCompactLabel({ enrolled: state.enrolled.has(agentId) }));
       }
     }
   }
@@ -224,13 +288,14 @@ export function contributeClient(client: PluginClientContext) {
     const existing = tracked.get(agentId);
     if (existing !== undefined && existing.workspaceId === workspaceId) return;
     // A pill is pinned to one workspace, so an agent that moved needs a new one.
-    existing?.remove?.();
-    tracked.set(agentId, { workspaceId, remove: null });
+    if (existing?.handle !== null && existing?.handle !== undefined) removePill(existing.handle);
+    tracked.set(agentId, { workspaceId, handle: null });
     sync();
   }
 
   function forget(agentId: string): void {
-    tracked.get(agentId)?.remove?.();
+    const handle = tracked.get(agentId)?.handle;
+    if (handle !== null && handle !== undefined) removePill(handle);
     tracked.delete(agentId);
   }
 

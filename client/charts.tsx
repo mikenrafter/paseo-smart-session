@@ -1,8 +1,8 @@
-import type { PluginSurfaceProps } from "@getpaseo/plugin";
+import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import React from "react";
 import { Text, View } from "react-native";
 
-import { formatTokens, rampStep } from "./format.shared";
+import { formatTokens, rampStep } from "../shared/format";
 
 type Theme = PluginSurfaceProps["theme"];
 

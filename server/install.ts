@@ -33,7 +33,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
-import { readSettings } from "./settings.server.ts";
+import { readSettings } from "./settings.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -98,7 +98,7 @@ async function exists(path: string): Promise<boolean> {
  * Where this plugin's files live, according to Paseo.
  *
  * Read from the host's own `config.json` rather than derived from the module's
- * location: Paseo compiles `index.ts` into a bundle whose path is an
+ * location: Paseo compiles `index.server.ts` into a bundle whose path is an
  * implementation detail, and `import.meta` is not safe to rely on across that
  * compilation. Every configured plugin is checked rather than just `smart-session`,
  * because a second install under `--id something-else` is a supported thing to do.
