@@ -76,7 +76,7 @@ function thrashing(items, agentId, now = Date.now()) {
 function ask({ used, max, pct }, path, age, freshMinutes) {
   const stale = age === null || age > freshMinutes * 60;
   const lines = [
-    `Smart compact: this session holds ${used.toLocaleString()} tokens (${pct}% of a ${max.toLocaleString()}-token window).`,
+    `Smart Compact: this session holds ${used.toLocaleString()} tokens (${pct}% of a ${max.toLocaleString()}-token window).`,
     max >= 400_000
       ? "That is worth compacting now even though the window is nowhere near full — what costs you is the prefix re-read on every turn, not the ceiling."
       : "This is the point where recall degrades noticeably and every turn re-reads an expensive prefix.",
@@ -110,7 +110,7 @@ function ask({ used, max, pct }, path, age, freshMinutes) {
  */
 function thrashAdvice({ used, pct }) {
   return [
-    `Smart compact: this session refilled to ${used.toLocaleString()} tokens (${pct}%) within minutes of its last compaction.`,
+    `Smart Compact: this session refilled to ${used.toLocaleString()} tokens (${pct}%) within minutes of its last compaction.`,
     "Compacting again would not help — something in this loop is reading far more than it keeps, so the window would refill just as fast and you would pay for another summary.",
     "Write what you have learned to your state file with checkpoint, then either change the approach so it stops re-reading the same material, or finish and let a fresh session take the rest.",
   ].join("\n");

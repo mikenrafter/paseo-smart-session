@@ -82,7 +82,7 @@ function Section({ theme, title, children }: { theme: Theme; title: string; chil
 /**
  * A switch, and the one thing it controls.
  *
- * `disabled` is for the options that only mean something while Smart compact is on.
+ * `disabled` is for the options that only mean something while Smart Compact is on.
  * They stay visible and keep showing their own value — hiding them would make the
  * master switch look like it had erased them — but they dim and stop responding,
  * which is what says "this one depends on the one above".
@@ -208,7 +208,7 @@ export function SmartSessionSurface({ theme, layout }: PluginSurfaceProps) {
       // out their own refresh interval.
       .then(() => refreshPills(() => readEnrolment({})))
       .then(() => {
-        toast.show(next ? "Smart compact on" : "Smart compact off");
+        toast.show(next ? "Smart Compact on" : "Smart Compact off");
         return queryClient.invalidateQueries({ queryKey: ["smart-session", "settings"] });
       })
       .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
@@ -352,11 +352,11 @@ export function SmartSessionSurface({ theme, layout }: PluginSurfaceProps) {
       )}
 
       {settings === undefined ? null : (
-        <Section theme={theme} title="Smart compact">
+        <Section theme={theme} title="Smart Compact">
           <Toggle
             theme={theme}
             on={settings.enabled}
-            label="Smart compact"
+            label="Smart Compact"
             detail={
               settings.enabled
                 ? `On. Past ${settings.thresholds.large.compact}% of a large window or ${settings.thresholds.small.compact}% of a small one, a session is asked at the end of a turn whether to compact itself — and compacted only if it says yes. ${enrolled} session${

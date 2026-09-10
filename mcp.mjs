@@ -393,7 +393,7 @@ const TOOLS = {
       const agentId = requireAgent();
       const settings = readSettings();
       if (!settings.enabled) {
-        return "Smart compact is switched off for this Paseo install, so nothing would deliver this request. Compact by hand if you need to, or ask the user to turn Smart compact on in the Smart Session surface.";
+        return "Smart Compact is switched off for this Paseo install, so nothing would deliver this request. Compact by hand if you need to, or ask the user to turn Smart Compact on in the Smart Session surface.";
       }
 
       // Default to this session's own state file: the whole point is that the
@@ -434,7 +434,7 @@ const TOOLS = {
 
   defer_compaction: {
     description:
-      "Decline to compact for now, and say why. Use this when Smart compact has asked and this is the wrong moment — a refactor half applied, a tool sequence not finished, an answer the user is waiting on. You will not be asked again until the deferral runs out. This is a real answer, not a way of ignoring the question: the context keeps growing while it is in force.",
+      "Decline to compact for now, and say why. Use this when Smart Compact has asked and this is the wrong moment — a refactor half applied, a tool sequence not finished, an answer the user is waiting on. You will not be asked again until the deferral runs out. This is a real answer, not a way of ignoring the question: the context keeps growing while it is in force.",
     inputSchema: {
       type: "object",
       properties: {

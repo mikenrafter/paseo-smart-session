@@ -14,7 +14,7 @@ import { DEFAULT_THRESHOLDS, normalizeThresholds, type Thresholds } from "../sha
 
 export interface Settings {
   /**
-   * The master switch: whether Smart compact runs at all.
+   * The master switch: whether Smart Compact runs at all.
    *
    * Off means the `Stop` hook never asks, the pill is not drawn, and a queued
    * compaction is not delivered. It is the one control that has to be

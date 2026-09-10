@@ -86,7 +86,7 @@ export const ThresholdsSchema = z.object({
 });
 
 export const SettingsSchema = z.object({
-  /** The master switch: with this off, Smart compact does nothing at all. */
+  /** The master switch: with this off, Smart Compact does nothing at all. */
   enabled: z.boolean(),
   thresholds: ThresholdsSchema,
   freshStateMinutes: z.number(),

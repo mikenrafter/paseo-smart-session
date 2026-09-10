@@ -17,7 +17,7 @@ A trusted local [Paseo](https://paseo.sh) plugin, in two halves:
 Requires Paseo 0.8.0+ with plugins enabled (**Settings → Plugins**).
 
 ```bash
-paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.3
+paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.4
 ```
 
 Paseo clones, compiles and starts it on the daemon machine — no package manager runs, and the plugin
@@ -38,7 +38,7 @@ The v0.2 rename changed the runtime id, so replace the installation once:
 
 ```bash
 paseo plugin remove super-session
-paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.3
+paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.4
 ```
 
 On first start the plugin atomically moves `$PASEO_HOME/plugin-data/super-session/` to
@@ -79,7 +79,7 @@ Password files may end in a newline; it is trimmed before use. Keep them readabl
 daemon client and never writes or logs it. An explicitly configured file that is missing, unreadable,
 or empty fails with a generic error instead of leaking its path or contents.
 
-## Smart compact
+## Smart Compact
 
 **A session is only ever compacted because it asked to be.** There is no threshold at which the plugin
 compacts something on its own. What it does is put the question where the agent cannot miss it, at a
@@ -140,7 +140,7 @@ is a deliberate backstop rather than a race.
 
 | Setting | Default | Means |
 |---|---|---|
-| **Smart compact** | on | Master switch. Off, nothing is asked or compacted, and a request already made waits rather than failing. |
+| **Smart Compact** | on | Master switch. Off, nothing is asked or compacted, and a request already made waits rather than failing. |
 | **Enrol sessions automatically** | on | On, writing task state with `checkpoint` enrols a session. Off, enrol by hand from the pill. |
 | **Show the pill on every agent** | on | Whether the composer carries the pill. |
 | **Register the hooks with Claude Code** | on | Keeps the four hook entries in `~/.claude/settings.json`. Off removes them, and nothing will ask a session to compact itself. |
@@ -156,15 +156,15 @@ pills — so state is carried by colour and spelled out on hover:
 
 | Icon | Tooltip | Means |
 |---|---|---|
-| Accent | **Smart compact on** | Enrolled. Will be asked, at a turn boundary, once it fills. |
-| Muted | **Smart compact off** | Not enrolled. Nothing will ask it anything. |
+| Accent | **Smart Compact on** | Enrolled. Will be asked, at a turn boundary, once it fills. |
+| Muted | **Smart Compact off** | Not enrolled. Nothing will ask it anything. |
 
-Two states, not three: with Smart compact off the pill is not drawn at all. A press writes an explicit
+Two states, not three: with Smart Compact off the pill is not drawn at all. A press writes an explicit
 answer to `enrolment.json`, which outranks the inferred one — so a checkpointing session can be taken
 out, and one that has never checkpointed can be put in. Enrolling a session with no state file is safe:
 the ask tells it to write one first, and `request_compaction` refuses until it has.
 
-It is called **Smart compact**, not auto-compact: Claude Code ships a feature by that name with its own
+It is called **Smart Compact**, not auto-compact: Claude Code ships a feature by that name with its own
 thresholds, and this is a different thing.
 
 ## The agent-facing tools
@@ -217,7 +217,7 @@ through `claude mcp add-json`. That is a write to a file it does not own, so it 
 - **Never touches `~/.claude.json`** — that file holds credentials, so MCP registration goes through
   Claude Code's own CLI instead.
 
-Why at all: without the `Stop` hook the plugin records, draws charts, says "Smart compact: on" — and
+Why at all: without the `Stop` hook the plugin records, draws charts, says "Smart Compact: on" — and
 never compacts anything, a failure that looks like success.
 
 Hook paths are re-reconciled on every load, so a managed install that moves on update repairs itself.

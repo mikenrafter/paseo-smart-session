@@ -100,8 +100,8 @@ test("a corrupt overrides file costs the overrides, not the plugin", async () =>
 test("the pill says on or off, and nothing in between", () => {
   // There is no third state. A global switch that made an enrolled session inert
   // used to need one; the master switch hides the pill outright instead.
-  assert.equal(smartCompactLabel({ enrolled: true }), "Smart compact on");
-  assert.equal(smartCompactLabel({ enrolled: false }), "Smart compact off");
+  assert.equal(smartCompactLabel({ enrolled: true }), "Smart Compact on");
+  assert.equal(smartCompactLabel({ enrolled: false }), "Smart Compact off");
 });
 
 test("turning off automatic enrolment drops the inferred ones, not the explicit", async () => {

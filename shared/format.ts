@@ -69,14 +69,14 @@ export function rampStep(value: number, max: number, steps: number): number {
 /**
  * What the composer pill says about one agent.
  *
- * "Smart compact" rather than "auto-compact": Claude Code already ships a feature
+ * "Smart Compact" rather than "auto-compact": Claude Code already ships a feature
  * by the latter name that fires on its own thresholds, and a pill that borrowed the
  * name would read as a switch for that.
  *
  * Two states, because there are only two. Whether this session is governed is the
  * only question a pill can answer; whether the feature exists at all is answered by
- * the pill being drawn, since it is hidden entirely when Smart compact is off.
+ * the pill being drawn, since it is hidden entirely when Smart Compact is off.
  */
 export function smartCompactLabel(input: { enrolled: boolean }): string {
-  return input.enrolled ? "Smart compact on" : "Smart compact off";
+  return input.enrolled ? "Smart Compact on" : "Smart Compact off";
 }

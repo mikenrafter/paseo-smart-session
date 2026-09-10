@@ -261,7 +261,7 @@ export function contributeClient(client: PluginClientContext) {
       button: {
         title,
         icon: AutoCompactIcon,
-        label: "Smart compact",
+        label: "Smart Compact",
         behavior: { kind: "action", onPress: toggle },
       },
       // 0.8.0-beta.1 compatibility; ignored by the documented descriptor host.
