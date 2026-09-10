@@ -17,7 +17,7 @@ A trusted local [Paseo](https://paseo.sh) plugin, in two halves:
 Requires Paseo 0.8.0+ with plugins enabled (**Settings → Plugins**).
 
 ```bash
-paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.2
+paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.3
 ```
 
 Paseo clones, compiles and starts it on the daemon machine — no package manager runs, and the plugin
@@ -38,7 +38,7 @@ The v0.2 rename changed the runtime id, so replace the installation once:
 
 ```bash
 paseo plugin remove super-session
-paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.2
+paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.3
 ```
 
 On first start the plugin atomically moves `$PASEO_HOME/plugin-data/super-session/` to

@@ -46,6 +46,11 @@
   the password from `server/daemon-password.mjs`. Resolution order is `PASEO_PASSWORD`, then
   `PASEO_PASSWORD_FILE`, then `~/paseo-hub/secrets/daemon-password`. Never put the password, its file
   contents, or an underlying filesystem error into logs or error messages.
+- `mcp.mjs` is spawned directly by Claude Code from the plugin's own Git checkout, not by Paseo, so
+  it has no module graph to borrow `@getpaseo/client` from the way `server/daemon.ts` does. Its
+  `loadDaemonClient()` falls back to resolving the client from the `paseo` CLI found on `PATH`, since
+  that install always has it. `check-mcp-resolve.mjs` proves this against a Git install with no
+  `node_modules` of its own — this broke in production on the VM before that check existed.
 - Keep daemon connections short-lived. A long-lived socket in the plugin subprocess keeps the event
   loop alive and hangs Paseo's "Stopping plugin" step, which wedges reload for the life of the
   daemon. Every timer and resource must be released through `shared/lifecycle.ts`;
@@ -121,6 +126,7 @@ cannot see.
 | `check-bundles.mjs` | The dual-bundle boundary, plus the app's own registration validation, so a contribution Paseo would reject at install time fails here instead. |
 | `check-gitinstall.mjs` | That both bundles still compile with no installed dependencies, which is what `paseo plugin add` does. |
 | `check-teardown.mjs` | That the subprocess actually exits after cleanup. A leaked timer wedges plugin reload. |
+| `check-mcp-resolve.mjs` | That `mcp.mjs` can still reach the daemon client on a managed Git install, where `@getpaseo/client` exists only inside the global `paseo` CLI's own dependencies, not in this checkout's (nonexistent) `node_modules`. |
 
 Hook behaviour is verified against the Claude Code binary *and* a live session, never against the
 public docs — `RESEARCH.md` §3.4 records four answers the schemas alone got wrong. Extract with

@@ -15,9 +15,11 @@
  * JSON-RPC, which is small enough to speak directly.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 
 import { readSettings } from "./hooks/context.mjs";
@@ -62,14 +64,52 @@ const log = (...args) => console.error("[smart-session mcp]", ...args);
  * is not a Paseo agent, since the plugin ships with no installed dependencies. The
  * tools that need it are already hidden outside Paseo by `availableTools()`; this
  * makes the ones that do not need it work there too.
+ *
+ * This process is spawned directly by Claude Code from the plugin's own checkout,
+ * not by Paseo, so unlike `server/daemon.ts` it has no module graph to borrow from
+ * and a bare specifier resolves only in a dev checkout with `node_modules`
+ * installed. On a managed Git install the fallback instead finds the `paseo` CLI
+ * on `PATH` and resolves the client from its own installed dependencies — the
+ * same package the running daemon was built with.
  */
 let daemonClientModule = null;
 
+const CLIENT_SPECIFIER = ["@getpaseo", "client", "internal", "daemon-client"].join("/");
+
 async function loadDaemonClient() {
   if (daemonClientModule !== null) return daemonClientModule;
-  const specifier = ["@getpaseo", "client", "internal", "daemon-client"].join("/");
-  daemonClientModule = await import(specifier);
-  return daemonClientModule;
+  try {
+    daemonClientModule = await import(CLIENT_SPECIFIER);
+    return daemonClientModule;
+  } catch (directError) {
+    const cliPath = findPaseoCli();
+    if (cliPath === null) throw directError;
+    try {
+      const resolved = createRequire(cliPath).resolve(CLIENT_SPECIFIER);
+      daemonClientModule = await import(pathToFileURL(resolved).href);
+      return daemonClientModule;
+    } catch (viaCliError) {
+      throw new Error(
+        `Cannot resolve ${CLIENT_SPECIFIER} directly (${directError.message}) or via the paseo CLI at ${cliPath} (${viaCliError.message})`,
+      );
+    }
+  }
+}
+
+/** Finds `paseo` on PATH and resolves symlinks, the way a shell's `which` would. */
+function findPaseoCli() {
+  const name = process.platform === "win32" ? "paseo.cmd" : "paseo";
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (dir === "") continue;
+    const candidate = join(dir, name);
+    try {
+      statSync(candidate);
+      return realpathSync(candidate);
+    } catch {
+      // Not here; keep looking.
+    }
+  }
+  return null;
 }
 
 async function callPlugin(method, input) {
