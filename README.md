@@ -17,7 +17,7 @@ A trusted local [Paseo](https://paseo.sh) plugin, in two halves:
 Requires Paseo 0.8.0+ with plugins enabled (**Settings → Plugins**).
 
 ```bash
-paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.1
+paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.2
 ```
 
 Paseo clones, compiles and starts it on the daemon machine — no package manager runs, and the plugin
@@ -38,7 +38,7 @@ The v0.2 rename changed the runtime id, so replace the installation once:
 
 ```bash
 paseo plugin remove super-session
-paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.1
+paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.2
 ```
 
 On first start the plugin atomically moves `$PASEO_HOME/plugin-data/super-session/` to
@@ -59,11 +59,25 @@ paseo plugin install "$PWD"
 After editing: `npm run verify && paseo plugin reload smart-session`. Never restart the daemon to pick
 up a change — that kills every running agent, and a reload is enough.
 
-`npm run verify` is the typechecker, the unit tests, and three structural checks: that both bundles
-build with no reference to a stripped import, that they compile with no `node_modules` (so a Git
+`npm run verify` is the typechecker, the unit tests, and three structural checks: that both runtime
+entries respect the v0.8 directory boundaries, that they compile with no `node_modules` (so a Git
 install works), and that the subprocess exits after cleanup (a leaked timer wedges plugin reload).
 
 </details>
+
+### Password-protected daemons
+
+Smart Session's recorder, governor, MCP server, and development probe authenticate when the daemon
+has a password. They resolve the plaintext secret in this order:
+
+1. `PASEO_PASSWORD`, the standard Paseo environment variable.
+2. The file named by `PASEO_PASSWORD_FILE`.
+3. `~/paseo-hub/secrets/daemon-password`, for paseo-hub hosts.
+
+Password files may end in a newline; it is trimmed before use. Keep them readable only by their owner
+(for example, `chmod 600 /path/to/daemon-password`). The plugin passes the secret directly to Paseo's
+daemon client and never writes or logs it. An explicitly configured file that is missing, unreadable,
+or empty fails with a generic error instead of leaking its path or contents.
 
 ## Smart compact
 

@@ -22,6 +22,7 @@ import { randomUUID } from "node:crypto";
 
 import { readSettings } from "./hooks/context.mjs";
 import { defer, readLedger } from "./hooks/asks.mjs";
+import { resolveDaemonPassword } from "./server/daemon-password.mjs";
 
 const PLUGIN_ID = "smart-session";
 const AGENT_ID = process.env.PASEO_AGENT_ID ?? null;
@@ -73,6 +74,7 @@ async function loadDaemonClient() {
 
 async function callPlugin(method, input) {
   const { DaemonClient } = await loadDaemonClient();
+  const password = await resolveDaemonPassword();
   const client = new DaemonClient({
     url: process.env.PASEO_DAEMON_URL ?? "ws://127.0.0.1:6767/ws",
     clientId: "smart-session-mcp",
@@ -80,6 +82,7 @@ async function callPlugin(method, input) {
     reconnect: { enabled: false },
     connectTimeoutMs: 10_000,
     suppressSendErrors: true,
+    ...(password === undefined ? {} : { password }),
   });
   await client.connect();
   try {

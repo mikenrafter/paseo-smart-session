@@ -1,9 +1,12 @@
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { resolveDaemonPassword } from "./server/daemon-password.mjs";
 
 const [,, action, agentId, ...rest] = process.argv;
+const password = await resolveDaemonPassword();
 const client = new DaemonClient({
   url: "ws://127.0.0.1:6767/ws", clientId: "ss-probe", clientType: "cli",
   reconnect: { enabled: false }, connectTimeoutMs: 10000, suppressSendErrors: true,
+  ...(password === undefined ? {} : { password }),
 });
 await client.connect();
 try {

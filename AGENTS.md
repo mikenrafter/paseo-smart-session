@@ -42,6 +42,10 @@
   `paseo plugin add` breaks; `server/daemon.ts` assembles its specifier at runtime and borrows
   Paseo's own daemon client from the host for exactly that reason — which also keeps the protocol
   version identical to the daemon's. `check-gitinstall.mjs` enforces it.
+- Every direct daemon connection, including `server/daemon.ts`, `mcp.mjs`, and `probe.mjs`, must pass
+  the password from `server/daemon-password.mjs`. Resolution order is `PASEO_PASSWORD`, then
+  `PASEO_PASSWORD_FILE`, then `~/paseo-hub/secrets/daemon-password`. Never put the password, its file
+  contents, or an underlying filesystem error into logs or error messages.
 - Keep daemon connections short-lived. A long-lived socket in the plugin subprocess keeps the event
   loop alive and hangs Paseo's "Stopping plugin" step, which wedges reload for the life of the
   daemon. Every timer and resource must be released through `shared/lifecycle.ts`;

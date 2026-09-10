@@ -12,6 +12,8 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { resolveDaemonPassword } from "./daemon-password.mjs";
+
 const CONNECT_TIMEOUT_MS = 10_000;
 
 export interface DaemonClient {
@@ -30,6 +32,7 @@ interface DaemonClientModule {
     reconnect: { enabled: boolean };
     connectTimeoutMs: number;
     suppressSendErrors: boolean;
+    password?: string;
   }) => DaemonClient;
 }
 
@@ -83,6 +86,7 @@ async function resolveUrl(): Promise<string> {
 /** Runs `work` against a connection that is always closed before returning. */
 export async function withDaemon<T>(work: (client: DaemonClient) => Promise<T>): Promise<T> {
   const { DaemonClient } = loadDaemonClientModule();
+  const password = await resolveDaemonPassword();
   const client = new DaemonClient({
     url: await resolveUrl(),
     clientId: "paseo-smart-session",
@@ -90,6 +94,7 @@ export async function withDaemon<T>(work: (client: DaemonClient) => Promise<T>):
     reconnect: { enabled: false },
     connectTimeoutMs: CONNECT_TIMEOUT_MS,
     suppressSendErrors: true,
+    ...(password === undefined ? {} : { password }),
   });
   try {
     await client.connect();
