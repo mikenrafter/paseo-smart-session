@@ -1,7 +1,7 @@
 /** Proves both v0.8 runtime entries compile from a Git checkout with no node_modules. */
 import * as esbuild from "esbuild";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +24,13 @@ function trackedFiles() {
 
 const staging = mkdtempSync(join(tmpdir(), "smart-session-gitinstall-"));
 const failures = [];
+for (const name of execFileSync("find", ["server", "-type", "f"], { cwd: DIR, encoding: "utf8" })
+  .split("\n")
+  .filter((file) => /\.tsx?$/.test(file))) {
+  if (/["']@getpaseo\/client/.test(readFileSync(join(DIR, name), "utf8"))) {
+    failures.push(`${name}: literal @getpaseo/client type dependencies fail Paseo's Git installer`);
+  }
+}
 try {
   for (const directory of ["client", "server", "shared"]) {
     mkdirSync(join(staging, directory), { recursive: true });
