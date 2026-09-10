@@ -20,8 +20,7 @@ Requires Paseo 0.8.0+ with plugins enabled (**Settings → Plugins**).
 paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.4
 ```
 
-Paseo clones, compiles and starts it on the daemon machine — no package manager runs, and the plugin
-needs no dependencies. Omit `--ref` to track `main`. The runtime id is `smart-session`:
+Omit `--ref` to track `main`. The runtime id is `smart-session`:
 
 ```bash
 paseo plugin ls                    # confirm it is running
