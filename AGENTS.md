@@ -92,13 +92,15 @@
 - **Compaction is always agent-mandated.** Nothing in this plugin may decide that a session should be
   compacted; `queue.add` is reached only from an agent's `request_compaction` or a person. The ask
   lives in `hooks/ask-compact.mjs` on `Stop`, where it rides the agent's own turn.
-- The plugin sends an agent exactly two things, and `sendToAgent` has exactly two call sites: the
-  `/compact` the agent asked for, and the one line that hands the emptied session back its state
-  file. Anything else it needs to hear comes from a hook. Adding a third is a design change, not a
+- The plugin sends an agent at most two things, and `sendToAgent` has exactly two call sites: the
+  `/compact` the agent asked for, and, when that agent requests one, a continuation message after it
+  lands. Anything else it needs to hear comes from a hook. Adding a third is a design change, not a
   patch — if you think you need one, check `RESEARCH.md` §3.4 first, because it probably records why
   the hook route you are about to reimplement does not work.
-- The resume exists because no hook can restart a task after a compaction, and it is sent only for
-  queue-originated compactions, so a `/compact` a person typed is never overridden.
+- The optional continuation exists because no hook can restart a task after a compaction. The agent
+  chooses whether to send it and may supply its exact text; omission preserves the state-aware
+  default for compatibility. It is sent only for queue-originated compactions, so a `/compact` a
+  person typed is never overridden.
 - Deliver only at a turn boundary, only when task state on disk is current, and never retry an
   interrupted `/compact` — it is destructive and not idempotent.
 - `settings.enabled` is the master switch; `showPill` and `autoEnrol` qualify it and mean nothing

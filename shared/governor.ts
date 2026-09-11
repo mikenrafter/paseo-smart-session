@@ -20,6 +20,10 @@ export const CompactionRequestSchema = z.object({
   reason: z.string(),
   /** A file the agent considers authoritative, re-read after compaction. */
   statePath: z.string().nullable(),
+  /** Whether to start another model turn after the compaction lands. */
+  continueAfterCompaction: z.boolean(),
+  /** Exact follow-up chosen by the agent, or null for the state-aware default. */
+  continuationMessage: z.string().nullable(),
   createdAt: z.string(),
   state: CompactionStateSchema,
   settledAt: z.string().nullable(),
@@ -28,11 +32,12 @@ export const CompactionRequestSchema = z.object({
   preTokens: z.number().nullable(),
   postTokens: z.number().nullable(),
   /**
-   * When the continuation was handed back its state file.
+   * When the requested continuation message was sent.
    *
    * Nothing in Claude Code restarts a task after a manual `/compact` — verified
    * across 190 real compactions, 163 of which stopped dead waiting for a person
-   * (`RESEARCH.md` §3.4). So the governor says it, once, and records that it did.
+   * (`RESEARCH.md` §3.4). When the agent wants to keep working, the governor says
+   * the default or agent-supplied follow-up once and records that it did.
    */
   resumedAt: z.string().nullable(),
 });
@@ -51,6 +56,8 @@ export const requestCompaction = defineRpc({
     agentId: z.string(),
     reason: z.string(),
     statePath: z.string().nullable().optional(),
+    continueAfterCompaction: z.boolean().optional(),
+    continuationMessage: z.string().min(1).nullable().optional(),
   }),
   output: z.object({ request: CompactionRequestSchema }),
 });
@@ -152,4 +159,20 @@ export function resumeInstructions(request: { statePath: string | null }): strin
     "Where the file disagrees with the summary above, the file is correct — it was written deliberately; the summary was compressed automatically. " +
     "Carry on from there without asking what to do next."
   );
+}
+
+/**
+ * Resolves the optional second message after a queued compaction lands.
+ *
+ * Continuing remains the default for requests made by older plugin versions, but
+ * the requesting agent can suppress the turn when its task is already complete or
+ * replace the state-aware default with the exact next instruction it needs.
+ */
+export function continuationInstructions(request: {
+  continueAfterCompaction: boolean;
+  continuationMessage: string | null;
+  statePath: string | null;
+}): string | null {
+  if (!request.continueAfterCompaction) return null;
+  return request.continuationMessage ?? resumeInstructions({ statePath: request.statePath });
 }

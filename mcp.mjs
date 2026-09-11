@@ -372,7 +372,7 @@ const TOOLS = {
 
   request_compaction: {
     description:
-      "Ask for this session to be compacted. Nothing compacts a session that has not asked, so this is the only way it happens. The request is delivered as a real /compact once this session goes idle — never mid-turn — with instructions steering what the summary must keep, and afterwards you are handed back your state file and told to carry on. Write your durable task state with checkpoint FIRST: this refuses to queue anything while the state on disk is missing or older than the work it describes.",
+      "Ask for this session to be compacted. Nothing compacts a session that has not asked, so this is the only way it happens. The request is delivered as a real /compact once this session goes idle — never mid-turn — with instructions steering what the summary must keep. Choose whether Paseo should start another turn afterwards: continue when work remains, or do not continue when the task is finished. Write your durable task state with checkpoint FIRST: this refuses to queue anything while the state on disk is missing or older than the work it describes.",
     inputSchema: {
       type: "object",
       properties: {
@@ -384,6 +384,16 @@ const TOOLS = {
           type: "string",
           description:
             "Absolute path to the file holding this task's durable state (goal, current step, decisions, dead ends). Strongly recommended.",
+        },
+        continue_after_compaction: {
+          type: "boolean",
+          description:
+            "Whether Paseo should send a follow-up that starts another model turn after compaction. Defaults to true for compatibility. Set false when the task is finished.",
+        },
+        continue_message: {
+          type: "string",
+          description:
+            "Exact follow-up message to send after compaction when continuing. Omit to use the default instruction to re-read the state file and carry on.",
         },
       },
       required: ["reason"],
@@ -419,16 +429,29 @@ const TOOLS = {
         ].join(" ");
       }
 
+      const continueAfterCompaction = args.continue_after_compaction !== false;
+      const continueMessage = typeof args.continue_message === "string" ? args.continue_message : "";
       const result = await callPlugin("smart-session.compact.request", {
         agentId,
         reason: String(args.reason ?? "no reason given"),
         statePath: path,
+        continueAfterCompaction,
+        continuationMessage: continueAfterCompaction && continueMessage.trim() !== "" ? continueMessage : null,
       });
       const queued = result.request;
-      return [
+      const lines = [
         `Compaction queued (${queued.id.slice(0, 8)}). It will be delivered as soon as this session is idle — so finish the turn you are in and stop.`,
-        `The continuation will be told to re-read ${queued.statePath} and to trust it over the summary, and to carry on from its "Current step" section.`,
-      ].join("\n");
+      ];
+      if (!queued.continueAfterCompaction) {
+        lines.push("No follow-up will be sent after the compaction lands.");
+      } else if (queued.continuationMessage !== null) {
+        lines.push("After it lands, the continuation message you supplied will start the next turn.");
+      } else {
+        lines.push(
+          `The continuation will be told to re-read ${queued.statePath} and to trust it over the summary, and to carry on from its "Current step" section.`,
+        );
+      }
+      return lines.join("\n");
     },
   },
 

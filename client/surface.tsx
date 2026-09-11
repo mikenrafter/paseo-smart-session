@@ -408,8 +408,8 @@ export function SmartSessionSurface({ theme, layout }: PluginSurfaceProps) {
           </View>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, marginTop: 6 }}>
             A session is never compacted unless it asks. Paseo puts the question at a turn boundary
-            and sends exactly two things in reply: the /compact the session asked for, and, once that
-            lands, one line telling it to pick up from its task state.
+            and sends the /compact it asked for. The agent also chooses whether to start another turn
+            afterwards and can supply that follow-up message itself.
           </Text>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, marginTop: 4 }}>
             {`Asked at ${settings.thresholds.large.compact}% of a ${formatTokens(settings.thresholds.largeWindowFrom)}+ window (${formatTokens(

@@ -91,13 +91,13 @@ function ask({ used, max, pct }, path, age, freshMinutes) {
     );
   } else {
     lines.push(
-      `1. Your task state at ${path} is current, so this is cheap: call request_compaction with a one-line reason. The continuation will be told to re-read that file and to trust it over the summary.`,
+      `1. Your task state at ${path} is current, so this is cheap: call request_compaction with a one-line reason. If work remains, ask it to continue (and optionally choose the follow-up message); if the task is finished, ask it not to continue.`,
     );
   }
 
   lines.push(
     "2. Or, if this is the wrong moment — mid-refactor, a tool sequence half finished, an answer the user is waiting on — call defer_compaction with a reason and you will not be asked again for a while.",
-    "Either way, do it now and then stop. A queued compaction is delivered as a real /compact once this session goes idle, and you will be told to pick up from your state file afterwards.",
+    "Either way, do it now and then stop. A queued compaction is delivered as a real /compact once this session goes idle; a follow-up turn is sent only if you requested one.",
   );
   return lines.join("\n");
 }

@@ -8,8 +8,9 @@
  *
  * This file decides nothing. Every request in the queue was put there by the agent
  * it belongs to, or by a person; the governor's whole job is to carry it out at a
- * moment when doing so is safe, and then to hand the emptied session back its state
- * file. Those two messages are the only things this plugin ever says to an agent.
+ * moment when doing so is safe, and then, when requested, to hand the emptied
+ * session back its state file. Those are the only things this plugin ever says to
+ * an agent.
  */
 
 import { randomUUID } from "node:crypto";
@@ -17,7 +18,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { readAgents, sendToAgent, withDaemon, type AgentRow } from "./daemon.ts";
-import { compactionInstructions, resumeInstructions, type CompactionRequest } from "../shared/governor.ts";
+import { compactionInstructions, continuationInstructions, type CompactionRequest } from "../shared/governor.ts";
 import { lifecycle } from "../shared/lifecycle.ts";
 import { readSettings } from "./settings.ts";
 import { dataDir } from "./store.ts";
@@ -52,7 +53,12 @@ function serialize<T>(work: () => Promise<T>): Promise<T> {
  * rather than here. Defaulting on read is the migration.
  */
 function normalize(item: CompactionRequest): CompactionRequest {
-  return { ...item, resumedAt: item.resumedAt ?? null };
+  return {
+    ...item,
+    continueAfterCompaction: item.continueAfterCompaction ?? true,
+    continuationMessage: item.continuationMessage ?? null,
+    resumedAt: item.resumedAt ?? null,
+  };
 }
 
 async function readAll(): Promise<CompactionRequest[]> {
@@ -78,7 +84,13 @@ async function writeAll(items: CompactionRequest[]): Promise<void> {
 export const queue = {
   list: (): Promise<CompactionRequest[]> => serialize(readAll),
 
-  add: (input: { agentId: string; reason: string; statePath: string | null }): Promise<CompactionRequest> =>
+  add: (input: {
+    agentId: string;
+    reason: string;
+    statePath: string | null;
+    continueAfterCompaction: boolean;
+    continuationMessage: string | null;
+  }): Promise<CompactionRequest> =>
     serialize(async () => {
       const items = await readAll();
       const request: CompactionRequest = {
@@ -86,6 +98,8 @@ export const queue = {
         agentId: input.agentId,
         reason: input.reason,
         statePath: input.statePath,
+        continueAfterCompaction: input.continueAfterCompaction,
+        continuationMessage: input.continuationMessage,
         createdAt: new Date().toISOString(),
         state: "pending",
         settledAt: null,
@@ -136,12 +150,20 @@ export const queue = {
  * Agents whose compaction we are still waiting to land.
  *
  * Two things happen when it does: the post-compaction size is recorded, so the
- * policy can be graded, and the emptied session is handed back its state file.
- * Nothing else will do the second one — see `resumeInstructions`.
+ * policy can be graded, and, if the agent requested it, the emptied session is
+ * sent its chosen continuation. Nothing else will start that turn — see
+ * `continuationInstructions`.
  */
 const grading = new Map<
   string,
-  { requestId: string; preTokens: number | null; statePath: string | null; until: number }
+  {
+    requestId: string;
+    preTokens: number | null;
+    statePath: string | null;
+    continueAfterCompaction: boolean;
+    continuationMessage: string | null;
+    until: number;
+  }
 >();
 
 async function flush(): Promise<void> {
@@ -170,18 +192,23 @@ async function flush(): Promise<void> {
       await queue.update(watch.requestId, { postTokens: agent.usedTokens });
       grading.delete(agentId);
 
+      const continuation = continuationInstructions(watch);
+      if (continuation === null) {
+        console.log(`[smart-session] compacted ${agentId.slice(0, 8)} without a continuation, as requested`);
+        continue;
+      }
+
       // A manual /compact leaves the session idle with the task abandoned: no hook
-      // fires afterwards that can start a turn. This is the one message the plugin
-      // sends that the agent did not ask for, and it exists only because the
-      // compaction it follows *was* asked for.
+      // fires afterwards that can start a turn. Send one only when the requesting
+      // agent explicitly or implicitly chose to continue.
       try {
-        await sendToAgent(client, agentId, resumeInstructions({ statePath: watch.statePath }));
+        await sendToAgent(client, agentId, continuation);
         await queue.update(watch.requestId, { resumedAt: new Date().toISOString() });
-        console.log(`[smart-session] handed ${agentId.slice(0, 8)} back its task state after compacting`);
+        console.log(`[smart-session] sent ${agentId.slice(0, 8)} its continuation after compacting`);
       } catch (error) {
         // The compaction itself succeeded; failing to restart the task is worth a
         // line in the log, not a failed request.
-        console.error(`[smart-session] could not resume ${agentId.slice(0, 8)}`, String(error));
+        console.error(`[smart-session] could not continue ${agentId.slice(0, 8)}`, String(error));
       }
     }
 
@@ -209,6 +236,8 @@ async function flush(): Promise<void> {
           requestId: item.id,
           preTokens: agent.usedTokens,
           statePath: item.statePath,
+          continueAfterCompaction: item.continueAfterCompaction,
+          continuationMessage: item.continuationMessage,
           until: Date.now() + GRADE_WINDOW_MS,
         });
         console.log(`[smart-session] compacted ${item.agentId.slice(0, 8)} (${item.reason})`);

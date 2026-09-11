@@ -147,9 +147,18 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(installStatus, async () => ({ report: await install() }));
 
-  server.handle(requestCompaction, async ({ agentId, reason, statePath }) => ({
-    request: await queue.add({ agentId, reason, statePath: statePath ?? null }),
-  }));
+  server.handle(
+    requestCompaction,
+    async ({ agentId, reason, statePath, continueAfterCompaction, continuationMessage }) => ({
+      request: await queue.add({
+        agentId,
+        reason,
+        statePath: statePath ?? null,
+        continueAfterCompaction: continueAfterCompaction ?? true,
+        continuationMessage: continueAfterCompaction === false ? null : (continuationMessage ?? null),
+      }),
+    }),
+  );
 
   server.handle(listCompactions, async ({ agentId }) => {
     const items = await queue.list();

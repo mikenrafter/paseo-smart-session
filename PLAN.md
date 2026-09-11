@@ -229,7 +229,7 @@ One MCP server (or Paseo plugin tools, if the installed version exposes tool con
 | `context_status()` | fill %, tokens, burn/turn, est. turns left, boundary flag |
 | `budget_status()` | 5h + weekly utilization, resets_in, burn rate, projected exhaustion, advice |
 | `checkpoint(notes)` | writes/updates `.paseo/state/<task>.md`, returns what changed |
-| `request_compaction(reason)` | queues `/compact <templated instructions>` for delivery on idle |
+| `request_compaction(reason, continue_after_compaction?, continue_message?)` | queues `/compact <templated instructions>` for delivery on idle and lets the agent choose whether and how to continue afterwards |
 | `request_handoff(reason)` | queues a fresh seeded agent instead |
 
 `budget_status()` is what lets a long-running agent pace *itself* — downshift effort, stop fanning out
@@ -249,7 +249,7 @@ subagents, or stop and wait for the window to roll (which `paseo-defer` can alre
 | **5. State discipline** | `checkpoint` tool, post-compaction re-read hook, staleness nudges | **done** — the tool's shape enforces the discipline: goal/plan/current step are replaced, decisions and dead ends accumulate. The re-read pointer is delivered by `SessionStart:compact` with a `PostToolUse` fallback, since `PostCompact` cannot inject |
 | **6. Agent-initiated compaction** | `request_compaction` + deliver-when-idle + grading | **done** — `governor.server.ts`, verified end to end |
 | **7. Autopilot** | Two-phase policy, thrash detection, opt-in enrolment | **removed in v0.3** — replaced by Phase 8. Shipped in v0.2 and never enabled; the design below (§3.4, mode 2) was the wrong shape, because a threshold the plugin acts on is a threshold the agent did not agree to |
-| **8. The ask** | `Stop` hook puts the question at a turn boundary; `request_compaction` / `defer_compaction` answer it; the governor resumes the emptied session | **done, on by default** — `hooks/ask-compact.mjs`. Compaction is now agent-mandated in every case |
+| **8. The ask** | `Stop` hook puts the question at a turn boundary; `request_compaction` / `defer_compaction` answer it; the governor optionally resumes the emptied session as requested | **done, on by default** — `hooks/ask-compact.mjs`. Compaction and continuation are now agent-mandated in every case |
 
 ### Thresholds scale with the window, not with the percentage
 

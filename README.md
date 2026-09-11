@@ -14,7 +14,7 @@ Smart Session lets an agent see how full its context is, save durable task state
 
 ### Lets agents compact themselves
 
-An agent can check how much context it has used, checkpoint the work that must survive a reset, and request compaction when it reaches a safe stopping point. Once the compacted session resumes, Smart Session tells it to re-read that state and continue.
+An agent can check how much context it has used, checkpoint the work that must survive a reset, and request compaction when it reaches a safe stopping point. The agent also decides whether another turn should start afterwards and can write the exact follow-up message. A completed task can compact and stop; work in progress can resume from its saved state.
 
 The saved state captures the goal, the current step, decisions already made, and approaches that have already failed. That prevents a resumed agent from redoing work or asking a person how to continue.
 
@@ -36,7 +36,7 @@ That history remains useful after an individual session ends or a provider cache
 Requires Paseo 0.8.0 or newer with plugins enabled (**Settings → Plugins**).
 
 ```sh
-paseo plugin add tomgrin10/paseo-smart-session --ref v1.0.4
+paseo plugin add tomgrin10/paseo-smart-session --ref v1.1.0
 ```
 
 Omit `--ref` to follow `main`.
@@ -57,14 +57,14 @@ Smart Session exposes these MCP tools to Paseo agents:
 | --- | --- |
 | `context_status` | Shows current context usage, filling rate, and relevant thresholds. |
 | `checkpoint` | Writes durable task state for the current session. |
-| `request_compaction` | Queues compaction after current task state has been saved. |
+| `request_compaction` | Queues compaction and chooses whether and how to continue afterwards. |
 | `defer_compaction` | Defers a compaction request and records why. |
 | `budget_status` | Shows plan usage, burn rate, and reset times. |
 
 The usual flow is:
 
 ```text
-context_status → checkpoint → request_compaction → re-read state and continue
+context_status → checkpoint → request_compaction → stop, or re-read state and continue
 ```
 
 `request_compaction` refuses when the state file is missing or stale. The agent can checkpoint and request again in the same turn.
@@ -75,7 +75,13 @@ Smart Compact is the session-control feature. As a session fills, hooks can prov
 
 There is no forced compaction. An agent can compact immediately, defer with a reason, or keep working. A request is delivered only when the agent is idle and its state file is current.
 
-When the new session starts after an agent-requested compaction, it receives one instruction: re-read the state file and continue from its **Current step**. The durable state wins if it disagrees with the automatic summary.
+Every request sends the `/compact` command. The agent can also set:
+
+- `continue_after_compaction: false` to finish without starting another turn.
+- `continue_after_compaction: true` to start another turn after compaction.
+- `continue_message` to choose the exact follow-up; when omitted, the default tells the agent to re-read the state file and continue from its **Current step**.
+
+Omitting the new options preserves the earlier behavior: Smart Session continues with the default state-aware prompt. The durable state wins if it disagrees with the automatic summary. A `/compact` entered by a person never receives a plugin continuation.
 
 ### The composer pill
 
@@ -111,12 +117,12 @@ $PASEO_HOME/plugin-data/smart-session/
 | --- | --- |
 | `usage-YYYY-MM.jsonl` | Plan-usage observations and reset times. |
 | `context-YYYY-MM.jsonl` | Context-window usage changes. |
-| `compactions.json` | Compaction requests and context sizes. |
+| `compactions.json` | Compaction requests, continuation choices, and context sizes. |
 | `spend-index.json` | Hourly token spend by model, workspace, and agent type. |
 | `state/<agentId>.md` | Durable task state for one agent. |
 | `settings.json`, `enrolment.json` | Plugin settings and per-session enrolment. |
 
-Usage and context observations are append-only. A damaged line is skipped rather than putting the rest of the history at risk.
+Usage and context observations are append-only. A damaged line is skipped rather than putting the rest of the history at risk. Existing compaction rows are read as “continue with the default prompt,” so upgrading requires no data migration.
 
 ## Password-protected daemons
 
