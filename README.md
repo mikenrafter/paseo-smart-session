@@ -12,6 +12,8 @@ A trusted local [Paseo](https://paseo.sh) plugin, in two halves:
 - **Governor** — lets an agent see how full its own context is, ask to be compacted, and pick up where
   it left off afterwards.
 
+![A Smart Session compaction handoff: the requested compact preserves the task state, then the resumed session is told to re-read its state file and continue](docs/screenshots/smart-compact-handoff.png)
+
 ## Install
 
 Requires Paseo 0.8.0+ with plugins enabled (**Settings → Plugins**).
