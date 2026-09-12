@@ -5,7 +5,7 @@ import { contextGrowth, projectFull } from "./server/growth.ts";
 import { install } from "./server/install.ts";
 import { summarizeSpend } from "./server/spend.ts";
 import { countEnrolled, listEnrolment, readSettings, setEnrolled, writeSettings } from "./server/settings.ts";
-import { dataDir, newestUsage, readUsage } from "./server/store.ts";
+import { dataDir, newestUsage, readPlanSnapshot, readUsage } from "./server/store.ts";
 import {
   budgetStatus,
   contextStatus,
@@ -166,7 +166,7 @@ export default function contribute(server: PluginServerContext) {
       // mark resume-after-reset. Soft-fails when chat-resume / CLI is absent.
       try {
         const settings = await readSettings();
-        const newest = await newestUsage();
+        const newest = await readPlanSnapshot();
         const pressure = isPlanPressure(newest, settings.planUsageCompactPct);
         const reasonLooksPlan =
           typeof reason === "string" && /plan window|plan pressure|plan usage/i.test(reason);

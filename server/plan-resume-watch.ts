@@ -7,7 +7,7 @@
 
 import { readAgents, withDaemon } from "./daemon.ts";
 import { listEnrolment, readSettings } from "./settings.ts";
-import { newestUsage } from "./store.ts";
+import { newestUsage, readPlanSnapshot } from "./store.ts";
 import { isPlanPressure } from "../shared/plan-pressure.ts";
 import { lifecycle } from "../shared/lifecycle.ts";
 import { schedulePlanResume } from "./schedule-plan-resume.ts";
@@ -18,7 +18,7 @@ async function tick(): Promise<void> {
   const settings = await readSettings();
   if (!settings.enabled) return;
 
-  const newest = await newestUsage();
+  const newest = await readPlanSnapshot();
   const pressure = isPlanPressure(newest, settings.planUsageCompactPct);
   if (pressure === null) return;
 

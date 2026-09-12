@@ -191,12 +191,57 @@ export async function newestUsage(): Promise<UsageSample | null> {
   return newest;
 }
 
-export function noteNewestUsage(sample: UsageSample): void {
+/**
+ * Remember the freshest sample and merge it into the hook-facing plan snapshot.
+ *
+ * Samples already carry `provider:window` keys. Merging replaces that provider's
+ * keys so Claude and Codex plan pressure coexist in one Stop-hook file.
+ */
+export function noteNewestUsage(sample: UsageSample, providerId = "claude"): void {
   newestCache = { value: sample };
-  // Hot-path snapshot for Stop hooks (no JSONL tail, no daemon). Best-effort.
-  void writeFile(join(dataDir(), "newest-usage.json"), JSON.stringify(sample), "utf8").catch(
-    () => undefined,
-  );
+  void mergePlanSnapshot(sample, providerId).catch(() => undefined);
+}
+
+async function mergePlanSnapshot(sample: UsageSample, providerId: string): Promise<void> {
+  const path = join(dataDir(), "newest-usage.json");
+  let existingWindows: UsageSample["windows"] = {};
+  try {
+    const prev = JSON.parse(await readFile(path, "utf8")) as Partial<UsageSample>;
+    if (prev.windows && typeof prev.windows === "object") existingWindows = prev.windows;
+  } catch {
+    // First write.
+  }
+
+  const prefix = `${providerId}:`;
+  const merged: Record<string, UsageSample["windows"][string]> = {};
+  for (const [windowId, window] of Object.entries(existingWindows)) {
+    if (!windowId.startsWith(prefix)) merged[windowId] = window;
+  }
+  for (const [windowId, window] of Object.entries(sample.windows)) {
+    merged[windowId] = window;
+  }
+
+  const snapshot: UsageSample = {
+    at: sample.at,
+    fetchedAt: sample.fetchedAt,
+    src: sample.src,
+    account: providerId,
+    windows: merged,
+    credits: sample.credits,
+  };
+  await mkdir(dataDir(), { recursive: true });
+  await writeFile(path, JSON.stringify(snapshot), "utf8");
+}
+
+/** Merged Claude+Codex plan snapshot used by plan-pressure / resume watch. */
+export async function readPlanSnapshot(): Promise<UsageSample | null> {
+  try {
+    const raw = JSON.parse(await readFile(join(dataDir(), "newest-usage.json"), "utf8")) as UsageSample;
+    if (!raw || typeof raw !== "object" || !raw.windows) return null;
+    return raw;
+  } catch {
+    return newestUsage();
+  }
 }
 
 /** Drops in-memory state so a reload starts clean. */

@@ -55,10 +55,10 @@ On first load, Smart Session registers its Claude Code hooks and MCP server. It 
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `planUsageCompactPct` | `95` | When Claude plan usage reaches this %, enrolled agents may be asked to compact |
+| `planUsageCompactPct` | `95` | When Claude *or* Codex plan usage reaches this %, enrolled agents may be asked to compact |
 | `planUsageMinTokens` | `70000` | Only ask when the agent's context already holds at least this many tokens |
 
-At plan pressure the Stop hook asks the agent to checkpoint resume state and `/compact`. A one-shot heartbeat is scheduled for window reset (mirrors chat-resume; soft-fails if that plugin or the CLI is missing). Plan % is Claude-only today; Cursor has no feed here yet.
+At plan pressure the Stop hook asks the agent to checkpoint resume state and `/compact`. A one-shot heartbeat is scheduled for window reset (mirrors chat-resume; soft-fails if that plugin or the CLI is missing). Plan % comes from Paseo's `provider.usage.list` for **claude** and **codex** (plus Anthropic OAuth for Claude). Cursor still has no plan-window feed here.
 
 BabelTele: when Claude/Cursor PreCompact hooks are installed on the host (phoe-nix `v0id.babeltele.deployUserHooks`), `/compact` summarization uses BabelTele. This plugin still only *asks*; it does not replace those hooks.
 

@@ -82,13 +82,24 @@ function claudeJsonPath(): string {
  * "did this actually happen after what I already have" is asked before "is this
  * different from what I already have".
  */
-async function record(sample: UsageSample): Promise<boolean> {
-  const newest = await newestUsage();
-  const verdict = acceptReading(newest, sample);
+async function record(sample: UsageSample, providerId = "claude"): Promise<boolean> {
+  // Namespace window ids per provider so Claude and Codex five_hour windows do
+  // not share an acceptance/history identity (a Codex 10% must not look like a
+  // Claude window "going backwards").
+  const namespaced: UsageSample = {
+    ...sample,
+    account: providerId,
+    windows: Object.fromEntries(
+      Object.entries(sample.windows).map(([id, window]) => [`${providerId}:${id}`, window]),
+    ),
+  };
+  const previous = newestByProvider.get(providerId) ?? null;
+  const verdict = acceptReading(previous, namespaced);
   if (!verdict.ok) return false;
-  if (!isWorthRecording(newest, sample)) return false;
-  await appendUsage(sample);
-  noteNewestUsage(sample);
+  if (!isWorthRecording(previous, namespaced)) return false;
+  await appendUsage(namespaced);
+  newestByProvider.set(providerId, namespaced);
+  noteNewestUsage(namespaced, providerId);
   return true;
 }
 
@@ -102,6 +113,8 @@ async function record(sample: UsageSample): Promise<boolean> {
  * older than what the daemon already told us.
  */
 let lastClaudeJsonMtimeMs = 0;
+/** Per-provider newest sample for the acceptance gate (Claude vs Codex). */
+const newestByProvider = new Map<string, UsageSample>();
 
 async function pollClaudeJson(): Promise<void> {
   // Only when nothing live has answered for a while: a stale reading that gets
@@ -123,7 +136,7 @@ async function pollClaudeJson(): Promise<void> {
   try {
     const parsed = JSON.parse(await readFile(path, "utf8")) as { cachedUsageUtilization?: unknown };
     const sample = fromClaudeJson(parsed.cachedUsageUtilization);
-    if (sample !== null) await record(sample);
+    if (sample !== null) await record(sample, "claude");
   } catch (error) {
     console.error("[smart-session] could not read Claude's usage cache", String(error));
   }
@@ -177,15 +190,20 @@ async function pollUpstream(): Promise<void> {
 
   authWarned = false;
   const sample = fromUpstream(result.body);
-  if (sample !== null) await record(sample);
+  if (sample !== null) await record(sample, "claude");
 }
 
 async function pollDaemon(): Promise<void> {
   await withDaemon(async (client) => {
     const at = new Date().toISOString();
+    const raw = await readProviderUsage(client);
 
-    const usage = fromPaseoProviderUsage(await readProviderUsage(client));
-    if (usage !== null) await record(usage);
+    // Paseo already fetches Claude and Codex quota windows; upstream only
+    // recorded Claude. Record both so plan pressure covers ChatGPT/Codex limits.
+    for (const providerId of ["claude", "codex"] as const) {
+      const usage = fromPaseoProviderUsage(raw, providerId);
+      if (usage !== null) await record(usage, providerId);
+    }
 
     for (const agent of await readAgents(client)) {
       if (agent.usedTokens === null || agent.maxTokens === null) continue;

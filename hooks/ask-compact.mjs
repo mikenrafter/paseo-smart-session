@@ -100,12 +100,15 @@ function ask({ used, max, pct }, path, age, freshMinutes) {
  */
 function askForPlanPressure({ used, max, pct }, plan, path, age, freshMinutes) {
   const stale = age === null || age > freshMinutes * 60;
+  const label = plan.windowId.includes(":")
+    ? plan.windowId
+    : plan.windowId;
   const reset =
     plan.resetsAt !== null
-      ? ` Window ${plan.windowId} resets at ${plan.resetsAt}.`
-      : ` Window ${plan.windowId} has no published reset time.`;
+      ? ` Window ${label} resets at ${plan.resetsAt}.`
+      : ` Window ${label} has no published reset time.`;
   const lines = [
-    `Smart Compact (plan pressure): Claude plan usage is at ${Math.round(plan.pct)}% (${plan.windowId}).${reset}`,
+    `Smart Compact (plan pressure): provider plan usage is at ${Math.round(plan.pct)}% (${label}).${reset}`,
     `This session already holds ${used.toLocaleString()} tokens (${pct}% of a ${max.toLocaleString()}-token context). Compacting now keeps a fat prefix from burning the remainder of the plan and makes resume after renewal cheap.`,
     "Compacting is your call. Do one of these before you stop:",
   ];

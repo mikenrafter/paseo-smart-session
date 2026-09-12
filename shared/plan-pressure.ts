@@ -1,10 +1,11 @@
 /**
- * Plan-usage pressure: when the Claude plan window is nearly spent, compact
+ * Plan-usage pressure: when a provider plan window is nearly spent, compact
  * before the hard stop so resume after renewal stays cheap.
  *
  * Distinct from context-window thresholds in thresholds.ts — this axis is the
- * provider allowance (five_hour / seven_day / scoped weeklies), not the chat
- * token ceiling.
+ * provider allowance (Claude and Codex five-hour / weekly windows), not the chat
+ * token ceiling. Snapshot window ids may be namespaced as `claude:five_hour` /
+ * `codex:five_hour` when both providers are recorded.
  */
 
 import type { UsageSample } from "./usage.ts";
@@ -15,8 +16,18 @@ export interface PlanPressure {
   readonly resetsAt: string | null;
 }
 
+/** Strip an optional `provider:` prefix before matching window kind. */
+export function windowBaseId(windowId: string): string {
+  const colon = windowId.indexOf(":");
+  return colon === -1 ? windowId : windowId.slice(colon + 1);
+}
+
 /** Windows that matter for "am I about to hit the plan wall". */
-const INTERESTING = /^(five_hour|seven_day|weekly_)/;
+export function isInterestingPlanWindow(windowId: string): boolean {
+  const base = windowBaseId(windowId);
+  if (base === "code_review") return false;
+  return /^(five_hour|seven_day|weekly_)/.test(base);
+}
 
 /**
  * Highest plan % among active / interesting windows on a sample.
@@ -27,7 +38,7 @@ export function maxPlanPct(sample: UsageSample | null | undefined): PlanPressure
   let best: PlanPressure | null = null;
   for (const [windowId, window] of Object.entries(sample.windows)) {
     if (window.active === false) continue;
-    if (!INTERESTING.test(windowId) && !(window.pct > 0)) continue;
+    if (!isInterestingPlanWindow(windowId)) continue;
     if (!Number.isFinite(window.pct)) continue;
     if (best === null || window.pct > best.pct) {
       best = { pct: window.pct, windowId, resetsAt: window.resetsAt };
