@@ -72,6 +72,26 @@ export interface Settings {
    * sessions when the plan meter is high for unrelated reasons.
    */
   readonly planUsageMinTokens: number;
+  /**
+   * Whether a compacted, enrolled agent may be resumed *before* the plan window
+   * resets, to burn its last sliver of quota instead of losing it. Off leaves the
+   * existing post-reset-only heartbeat as the whole story.
+   */
+  readonly resumeSchedulingEnabled: boolean;
+  /** How far back to measure burn rate when sizing the pre-reset lead time. */
+  readonly burnRateLookbackMinutes: number;
+  /** Safety margin taken off the raw runway before scheduling (the user's "30%"). */
+  readonly resumeOverheadPct: number;
+  readonly resumeMinLeadMinutes: number;
+  readonly resumeMaxLeadMinutes: number;
+  /** Used when the empirical $-per-plan-% ratio can't be learned yet. */
+  readonly cacheWriteFallbackPct: number;
+  /** Per-model $/MTok overrides, layered over `shared/cache-cost.ts`'s seeded table. */
+  readonly cachePricingUsdPerMTok: Readonly<Record<string, number>>;
+  /** Whether the cache-warmth composer pill is drawn. */
+  readonly showCachePill: boolean;
+  /** Generic prompt-cache TTL assumed for every provider, in milliseconds. */
+  readonly cacheTtlMs: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -83,7 +103,25 @@ export const DEFAULT_SETTINGS: Settings = {
   installHooks: true,
   planUsageCompactPct: 95,
   planUsageMinTokens: 70_000,
+  resumeSchedulingEnabled: true,
+  burnRateLookbackMinutes: 5,
+  resumeOverheadPct: 30,
+  resumeMinLeadMinutes: 0.5,
+  resumeMaxLeadMinutes: 10,
+  cacheWriteFallbackPct: 1,
+  cachePricingUsdPerMTok: {},
+  showCachePill: true,
+  cacheTtlMs: 300_000,
 };
+
+function normalizePricingOverrides(raw: unknown): Readonly<Record<string, number>> {
+  if (typeof raw !== "object" || raw === null) return {};
+  const out: Record<string, number> = {};
+  for (const [model, price] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof price === "number" && Number.isFinite(price) && price > 0) out[model] = price;
+  }
+  return out;
+}
 
 const filePath = () => join(dataDir(), "settings.json");
 
@@ -113,6 +151,31 @@ export async function readSettings(): Promise<Settings> {
         0,
         10_000_000,
       ),
+      resumeSchedulingEnabled: raw.resumeSchedulingEnabled !== false,
+      burnRateLookbackMinutes: clamp(
+        raw.burnRateLookbackMinutes ?? DEFAULT_SETTINGS.burnRateLookbackMinutes,
+        1,
+        60,
+      ),
+      resumeOverheadPct: clamp(raw.resumeOverheadPct ?? DEFAULT_SETTINGS.resumeOverheadPct, 0, 90),
+      resumeMinLeadMinutes: clamp(
+        raw.resumeMinLeadMinutes ?? DEFAULT_SETTINGS.resumeMinLeadMinutes,
+        0.1,
+        60,
+      ),
+      resumeMaxLeadMinutes: clamp(
+        raw.resumeMaxLeadMinutes ?? DEFAULT_SETTINGS.resumeMaxLeadMinutes,
+        0.1,
+        120,
+      ),
+      cacheWriteFallbackPct: clamp(
+        raw.cacheWriteFallbackPct ?? DEFAULT_SETTINGS.cacheWriteFallbackPct,
+        0.1,
+        20,
+      ),
+      cachePricingUsdPerMTok: normalizePricingOverrides(raw.cachePricingUsdPerMTok),
+      showCachePill: raw.showCachePill !== false,
+      cacheTtlMs: clamp(raw.cacheTtlMs ?? DEFAULT_SETTINGS.cacheTtlMs, 10_000, 3_600_000),
     };
   } catch {
     cached = DEFAULT_SETTINGS;
@@ -131,6 +194,15 @@ export async function writeSettings(patch: Partial<Settings>): Promise<Settings>
     installHooks: next.installHooks !== false,
     planUsageCompactPct: clamp(next.planUsageCompactPct, 1, 100),
     planUsageMinTokens: clamp(next.planUsageMinTokens, 0, 10_000_000),
+    resumeSchedulingEnabled: next.resumeSchedulingEnabled !== false,
+    burnRateLookbackMinutes: clamp(next.burnRateLookbackMinutes, 1, 60),
+    resumeOverheadPct: clamp(next.resumeOverheadPct, 0, 90),
+    resumeMinLeadMinutes: clamp(next.resumeMinLeadMinutes, 0.1, 60),
+    resumeMaxLeadMinutes: clamp(next.resumeMaxLeadMinutes, 0.1, 120),
+    cacheWriteFallbackPct: clamp(next.cacheWriteFallbackPct, 0.1, 20),
+    cachePricingUsdPerMTok: normalizePricingOverrides(next.cachePricingUsdPerMTok),
+    showCachePill: next.showCachePill !== false,
+    cacheTtlMs: clamp(next.cacheTtlMs, 10_000, 3_600_000),
   };
   await mkdir(dataDir(), { recursive: true });
   const target = filePath();
@@ -247,4 +319,54 @@ export async function listEnrolment(): Promise<AgentEnrolment[]> {
 /** How many agents the governor would speak to. */
 export async function countEnrolled(): Promise<number> {
   return (await listEnrolment()).filter((agent) => agent.enrolled).length;
+}
+
+/**
+ * Per-agent resume eligibility, independent of Smart Compact enrolment.
+ *
+ * `"auto"` (the default, absent from the file) keeps today's heuristic — enrolled,
+ * above `planUsageMinTokens`. `"always"` bypasses that token floor. `"never"`
+ * excludes the agent from both the pre-reset and the post-reset resume path,
+ * regardless of anything else — a person's explicit "don't touch this one" always
+ * wins.
+ */
+export type ResumeMark = "auto" | "always" | "never";
+
+const resumeMarksPath = () => join(dataDir(), "resume-marks.json");
+
+async function readResumeMarks(): Promise<Record<string, ResumeMark>> {
+  try {
+    const raw = JSON.parse(await readFile(resumeMarksPath(), "utf8")) as Record<string, unknown>;
+    const marks: Record<string, ResumeMark> = {};
+    for (const [agentId, value] of Object.entries(raw)) {
+      if (value === "auto" || value === "always" || value === "never") marks[agentId] = value;
+    }
+    return marks;
+  } catch {
+    return {};
+  }
+}
+
+/** Sets, or clears (back to `"auto"`), one agent's resume mark. */
+export function setResumeMark(agentId: string, mark: ResumeMark): Promise<ResumeMark> {
+  return serialize(async () => {
+    const marks = await readResumeMarks();
+    if (mark === "auto") delete marks[agentId];
+    else marks[agentId] = mark;
+    await mkdir(dataDir(), { recursive: true });
+    const target = resumeMarksPath();
+    const temp = `${target}.${randomUUID()}.tmp`;
+    await writeFile(temp, JSON.stringify(marks, null, 2), "utf8");
+    await rename(temp, target);
+    return mark;
+  });
+}
+
+/** Every agent with an explicit resume mark. Anyone absent is `"auto"`. */
+export async function listResumeMarks(): Promise<Record<string, ResumeMark>> {
+  return readResumeMarks();
+}
+
+export async function resumeMarkFor(agentId: string): Promise<ResumeMark> {
+  return (await readResumeMarks())[agentId] ?? "auto";
 }

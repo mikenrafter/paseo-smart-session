@@ -133,6 +133,18 @@ export interface AgentRow {
   readonly usedTokens: number | null;
   readonly maxTokens: number | null;
   readonly costUsd: number | null;
+  /**
+   * Whether the daemon reports this agent's conversation as archived.
+   *
+   * Not documented in `RESEARCH.md` as of this writing — no confirmed field name
+   * exists yet for it in `fetchAgents`'s payload. Read defensively from every
+   * plausible spelling; `false` when none is present, which is the safe default
+   * for "never auto-resume an archived chat" (an unrecognized payload shape simply
+   * fails to exclude anything, rather than excluding everything).
+   */
+  readonly archived: boolean;
+  /** Last turn activity, when the payload carries one; used for the cache-warmth pill. */
+  readonly lastActivityAt: string | null;
 }
 
 /**
@@ -152,10 +164,17 @@ export async function readAgents(client: DaemonClient): Promise<AgentRow[]> {
         status?: string;
         cwd?: string | null;
         workspaceId?: string | null;
+        archived?: boolean;
+        archivedAt?: string | null;
+        isArchived?: boolean;
+        lastActivityAt?: string | null;
+        lastMessageAt?: string | null;
+        updatedAt?: string | null;
         lastUsage?: {
           contextWindowUsedTokens?: number;
           contextWindowMaxTokens?: number;
           totalCostUsd?: number;
+          at?: string | null;
         };
       };
     }[];
@@ -176,6 +195,8 @@ export async function readAgents(client: DaemonClient): Promise<AgentRow[]> {
       usedTokens: agent.lastUsage?.contextWindowUsedTokens ?? null,
       maxTokens: agent.lastUsage?.contextWindowMaxTokens ?? null,
       costUsd: agent.lastUsage?.totalCostUsd ?? null,
+      archived: agent.archived === true || agent.isArchived === true || typeof agent.archivedAt === "string",
+      lastActivityAt: agent.lastActivityAt ?? agent.lastMessageAt ?? agent.lastUsage?.at ?? agent.updatedAt ?? null,
     });
   }
   return rows;

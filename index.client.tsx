@@ -1,5 +1,6 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 
+import { contributeCachePill } from "./client/cache-pill";
 import { contributeClient, refreshPills } from "./client/pill";
 import { SmartSessionSurface } from "./client/surface";
 import { enrolmentState } from "./shared/governor";
@@ -38,5 +39,10 @@ export default function contribute(client: PluginClientContext) {
     },
   });
 
-  return contributeClient(client);
+  const cleanupPills = contributeClient(client);
+  const cleanupCachePill = contributeCachePill(client);
+  return () => {
+    cleanupPills();
+    cleanupCachePill();
+  };
 }

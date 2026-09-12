@@ -62,6 +62,27 @@ At plan pressure the Stop hook asks the agent to checkpoint resume state and `/c
 
 BabelTele: when Claude/Cursor PreCompact hooks are installed on the host (phoe-nix `v0id.babeltele.deployUserHooks`), `/compact` summarization uses BabelTele. This plugin still only *asks*; it does not replace those hooks.
 
+### Pre-reset resume
+
+An unused percentage of a plan window's quota is lost at reset, not carried over. When one of several compacted, enrolled agents needs to resume, Smart Session can schedule the cheapest one's resume *before* the reset instead of after it, so it burns that last sliver of quota rather than losing it — then falls back to the ordinary post-reset heartbeat for the rest.
+
+The lead time comes from the window's own recent burn rate: `(remaining % − estimated cache-write %) ÷ (%/minute burn rate) × (1 − overhead %)`, clamped to a configurable min/max. The cache-write cost — what a cold resume's cache write costs, converted into plan-% — is learned empirically from this plugin's own recorded cost and plan-usage history, falling back to a configured default until enough history exists.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `resumeSchedulingEnabled` | `true` | Whether a compacted agent may be resumed before the plan window resets |
+| `burnRateLookbackMinutes` | `5` | Lookback for the burn rate used to size the lead time |
+| `resumeOverheadPct` | `30` | Safety margin taken off the raw runway |
+| `resumeMinLeadMinutes` / `resumeMaxLeadMinutes` | `0.5` / `10` | Bounds on the computed lead time |
+| `cacheWriteFallbackPct` | `1` | Assumed cache-write cost until the empirical ratio can be learned |
+| `cachePricingUsdPerMTok` | `{}` | Per-model $/MTok overrides, layered over the seeded pricing table in `shared/cache-cost.ts` |
+
+A session can be marked `auto` (the default heuristic), `always` (bypass the token floor), or `never` (excluded from both the pre-reset and post-reset resume path). Archived or closed agents are always excluded. The mark and any pending resume ETA show in the Smart Compact pill's tooltip (tap to cycle) and in the overview surface's agent list.
+
+### Cache-warmth pill
+
+A second composer pill counts down how much longer a provider's prompt cache is likely still warm (`showCachePill`, `cacheTtlMs` — one generic TTL assumed for every provider, default 5 minutes). It disappears once cold. This is deliberately shallow: it does not model any provider's actual cache mechanics per model or request shape, just "still cheap to resume" versus "gone cold."
+
 ## How an agent uses it
 
 Smart Session exposes these MCP tools to Paseo agents:

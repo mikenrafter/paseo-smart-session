@@ -429,3 +429,12 @@ so this history is shallow and getting shallower — another reason the live rec
 3. Whether long-context (>200k) requests carry a pricing/limit premium on `opus[1m]` —
    `exceeds_200k_tokens` exists as a signal; the economics behind it are unconfirmed. Don't build a
    policy on it until measured against real utilization deltas.
+4. Whether `entries[].agent` carries an "archived" flag, and under what name. Introduced with
+   pre-reset resume (server/daemon.ts's `AgentRow.archived`) to guarantee an archived conversation is
+   never auto-resumed — read defensively from every plausible spelling (`archived`, `isArchived`,
+   `archivedAt`) and defaults to `false` when none is present. Confirm the real field name against a
+   live payload (archive a test conversation, then `fetchAgents()`) and correct this note and the
+   read in `daemon.ts` once known; until then this is a best-effort guess, not a verified fact.
+5. Same question for a last-activity timestamp on `entries[].agent`, used by the cache-warmth pill
+   (`AgentRow.lastActivityAt`, guessed from `lastActivityAt` / `lastMessageAt` / `lastUsage.at` /
+   `updatedAt` in that order). Unconfirmed against a live payload.

@@ -4,7 +4,15 @@ import { readAgents, withDaemon } from "./server/daemon.ts";
 import { contextGrowth, projectFull } from "./server/growth.ts";
 import { install } from "./server/install.ts";
 import { summarizeSpend } from "./server/spend.ts";
-import { countEnrolled, listEnrolment, readSettings, setEnrolled, writeSettings } from "./server/settings.ts";
+import {
+  countEnrolled,
+  listEnrolment,
+  listResumeMarks,
+  readSettings,
+  setEnrolled,
+  setResumeMark as setResumeMarkStorage,
+  writeSettings,
+} from "./server/settings.ts";
 import { dataDir, newestUsage, readPlanSnapshot, readUsage } from "./server/store.ts";
 import {
   budgetStatus,
@@ -38,8 +46,9 @@ import { queue } from "./server/governor.ts";
 import "./server/install-on-load.ts";
 // Plan-pressure resume heartbeats (mirrors chat-resume; soft-fails without it).
 import "./server/plan-resume-watch.ts";
-import { schedulePlanResume } from "./server/schedule-plan-resume.ts";
+import { readResumeMarker, schedulePlanResume } from "./server/schedule-plan-resume.ts";
 import { isPlanPressure } from "./shared/plan-pressure.ts";
+import { resumeMarkState, setResumeMarkRpc } from "./shared/resume.ts";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(budgetStatus, async () => {
@@ -113,6 +122,7 @@ export default function contribute(server: PluginServerContext) {
           growthTokensPerHour: growth.get(row.id) ?? null,
           projectedFullAt: projectFull(row.usedTokens!, row.maxTokens!, growth.get(row.id) ?? null, thresholds),
           compactAtPct: profileFor(row.maxTokens!, thresholds).compact,
+          lastActivityAt: row.lastActivityAt,
         }))
         .sort((a, b) => b.usedPct - a.usedPct);
       return { agents, error: null };
@@ -227,6 +237,26 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(setEnrolment, async ({ agentId, enrolled }) => ({
     agent: await setEnrolled(agentId, enrolled),
+  }));
+
+  server.handle(resumeMarkState, async () => {
+    const [marks, rows] = await Promise.all([
+      listResumeMarks(),
+      withDaemon((client) => readAgents(client)).catch(() => []),
+    ]);
+    const agents = await Promise.all(
+      rows.map(async (row) => ({
+        agentId: row.id,
+        mark: marks[row.id] ?? ("auto" as const),
+        pending: await readResumeMarker(row.id),
+      })),
+    );
+    return { agents };
+  });
+
+  server.handle(setResumeMarkRpc, async ({ agentId, mark }) => ({
+    agentId,
+    mark: await setResumeMarkStorage(agentId, mark),
   }));
 
   // The recorder and governor register their timers in this shared lifecycle.

@@ -5,9 +5,10 @@ import React from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 import { DailyBars, HourHeatmap, RankedTotals } from "./charts";
-import { refreshPills } from "./pill";
+import { refreshPills, refreshResumeMarks } from "./pill";
 import { enrolmentState } from "../shared/governor";
 import { formatRelative, formatTokens, isInteresting, windowLabel } from "../shared/format";
+import { nextResumeMark, resumeMarkLabel, resumeMarkState, setResumeMarkRpc, type ResumeMark } from "../shared/resume";
 import {
   budgetStatus,
   contextStatus,
@@ -140,6 +141,85 @@ function Toggle({
   );
 }
 
+type NumericSettingKey =
+  | "burnRateLookbackMinutes"
+  | "resumeOverheadPct"
+  | "resumeMinLeadMinutes"
+  | "resumeMaxLeadMinutes"
+  | "cacheWriteFallbackPct"
+  | "cacheTtlMs";
+
+/**
+ * `–`/value/`+`, for the numeric settings introduced with pre-reset resume.
+ *
+ * There is no numeric-input widget elsewhere in this codebase to reuse — every
+ * other setting here is a toggle — so this is deliberately the smallest thing that
+ * reads and writes a bounded number without adding a text-input dependency.
+ */
+function Stepper({
+  theme,
+  label,
+  detail,
+  value,
+  step,
+  min,
+  max,
+  format = (v) => String(v),
+  onChange,
+  disabled = false,
+}: {
+  theme: Theme;
+  label: string;
+  detail: string;
+  value: number;
+  step: number;
+  min: number;
+  max: number;
+  format?: (value: number) => string;
+  onChange: (value: number) => void;
+  disabled?: boolean;
+}) {
+  const clampedStep = (delta: number) => Math.min(max, Math.max(min, Math.round((value + delta) / step) * step));
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        backgroundColor: theme.colors.surface1,
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
+      <View style={{ flexShrink: 1, flexGrow: 1, gap: 2 }}>
+        <Text style={{ color: theme.colors.foreground, fontWeight: "600" }}>{label}</Text>
+        <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{detail}</Text>
+      </View>
+      <Pressable
+        disabled={disabled}
+        onPress={() => onChange(clampedStep(-step))}
+        style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+      >
+        <Text style={{ color: theme.colors.accent, fontSize: 16, fontWeight: "700" }}>–</Text>
+      </Pressable>
+      <Text style={{ color: theme.colors.foreground, fontVariant: ["tabular-nums"], minWidth: 56, textAlign: "center" }}>
+        {format(value)}
+      </Text>
+      <Pressable
+        disabled={disabled}
+        onPress={() => onChange(clampedStep(step))}
+        style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+      >
+        <Text style={{ color: theme.colors.accent, fontSize: 16, fontWeight: "700" }}>+</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export function SmartSessionSurface({ theme, layout }: PluginSurfaceProps) {
   const budget = useRpc(budgetStatus);
   const context = useRpc(contextStatus);
@@ -148,6 +228,8 @@ export function SmartSessionSurface({ theme, layout }: PluginSurfaceProps) {
   const writeSettings = useRpc(setSettings);
   const readEnrolment = useRpc(enrolmentState);
   const readInstall = useRpc(installStatus);
+  const readResumeMarks = useRpc(resumeMarkState);
+  const writeResumeMark = useRpc(setResumeMarkRpc);
   const toast = useToast();
   const queryClient = useQueryClient();
 
@@ -181,9 +263,30 @@ export function SmartSessionSurface({ theme, layout }: PluginSurfaceProps) {
     refetchInterval: 5 * 60_000,
   });
 
+  const resumeQuery = useQuery({
+    queryKey: ["smart-session", "resume"],
+    queryFn: () => readResumeMarks({}),
+    refetchInterval: 20_000,
+  });
+
   const settings = settingsQuery.data?.settings;
   const enrolled = settingsQuery.data?.enrolledAgents ?? 0;
   const install = installQuery.data?.report;
+  const resumeByAgent = new Map((resumeQuery.data?.agents ?? []).map((agent) => [agent.agentId, agent]));
+
+  function cycleResumeMark(agentId: string) {
+    const current: ResumeMark = resumeByAgent.get(agentId)?.mark ?? "auto";
+    void writeResumeMark({ agentId, mark: nextResumeMark(current) })
+      .then(() => refreshResumeMarks(() => readResumeMarks({})))
+      .then(() => queryClient.invalidateQueries({ queryKey: ["smart-session", "resume"] }))
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
+  }
+
+  function updateNumericSetting(key: NumericSettingKey, value: number) {
+    void writeSettings({ [key]: value })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["smart-session", "settings"] }))
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
+  }
 
   function toggleInstallHooks() {
     if (settings === undefined) return;
@@ -289,20 +392,140 @@ export function SmartSessionSurface({ theme, layout }: PluginSurfaceProps) {
         {agents.length === 0 ? (
           <Text style={{ color: theme.colors.foregroundMuted }}>No agent has reported a turn yet.</Text>
         ) : (
-          agents.map((agent) => (
-            <Row
-              key={agent.agentId}
-              theme={theme}
-              title={agent.title ?? agent.agentId.slice(0, 8)}
-              pct={agent.usedPct}
-              trailing={`${agent.usedPct.toFixed(1)}%`}
-              detail={`${formatTokens(agent.usedTokens)} / ${formatTokens(agent.maxTokens)} · compact at ${
-                agent.compactAtPct
-              }% · ${agent.status}${agent.model === null ? "" : ` · ${agent.model}`}`}
-            />
-          ))
+          agents.map((agent) => {
+            const resume = resumeByAgent.get(agent.agentId);
+            const mark = resume?.mark ?? "auto";
+            const pending = resume?.pending ?? null;
+            return (
+              <View key={agent.agentId} style={{ gap: 2 }}>
+                <Row
+                  theme={theme}
+                  title={agent.title ?? agent.agentId.slice(0, 8)}
+                  pct={agent.usedPct}
+                  trailing={`${agent.usedPct.toFixed(1)}%`}
+                  detail={`${formatTokens(agent.usedTokens)} / ${formatTokens(agent.maxTokens)} · compact at ${
+                    agent.compactAtPct
+                  }% · ${agent.status}${agent.model === null ? "" : ` · ${agent.model}`}`}
+                />
+                <Pressable onPress={() => cycleResumeMark(agent.agentId)} style={{ paddingBottom: 8 }}>
+                  <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>
+                    {`Resume: ${resumeMarkLabel(mark)}`}
+                    {pending === null
+                      ? ""
+                      : ` · resumes ${
+                          pending.scheduledFor === null ? "soon" : formatRelative(pending.scheduledFor)
+                        } (${pending.mode})`}
+                    {" · tap to change"}
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          })
         )}
       </Section>
+
+      {settings === undefined ? null : (
+        <Section theme={theme} title="Resume scheduling">
+          <Toggle
+            theme={theme}
+            on={settings.resumeSchedulingEnabled}
+            label="Resume before the window resets"
+            detail="When an enrolled agent compacts under plan pressure, resume the cheapest one early enough to burn its last sliver of quota instead of losing it at reset. Everyone else keeps the ordinary post-reset resume."
+            onPress={() =>
+              void writeSettings({ resumeSchedulingEnabled: !settings.resumeSchedulingEnabled }).then(() =>
+                queryClient.invalidateQueries({ queryKey: ["smart-session", "settings"] }),
+              )
+            }
+          />
+          <View style={{ marginTop: 8 }}>
+            <Toggle
+              theme={theme}
+              on={settings.showCachePill}
+              label="Show the cache-warmth pill"
+              detail="Puts a countdown on the composer for how much longer the provider's prompt cache is likely still warm."
+              onPress={() =>
+                void writeSettings({ showCachePill: !settings.showCachePill }).then(() =>
+                  queryClient.invalidateQueries({ queryKey: ["smart-session", "settings"] }),
+                )
+              }
+            />
+          </View>
+          <View style={{ marginTop: 8, gap: 8 }}>
+            <Stepper
+              theme={theme}
+              label="Burn-rate lookback"
+              detail="How far back to measure the plan window's recent burn rate."
+              value={settings.burnRateLookbackMinutes}
+              step={1}
+              min={1}
+              max={60}
+              format={(v) => `${v}m`}
+              disabled={!settings.resumeSchedulingEnabled}
+              onChange={(v) => updateNumericSetting("burnRateLookbackMinutes", v)}
+            />
+            <Stepper
+              theme={theme}
+              label="Safety overhead"
+              detail="Margin taken off the raw runway before scheduling."
+              value={settings.resumeOverheadPct}
+              step={5}
+              min={0}
+              max={90}
+              format={(v) => `${v}%`}
+              disabled={!settings.resumeSchedulingEnabled}
+              onChange={(v) => updateNumericSetting("resumeOverheadPct", v)}
+            />
+            <Stepper
+              theme={theme}
+              label="Minimum lead time"
+              detail="Never schedule a pre-reset resume closer than this to now."
+              value={settings.resumeMinLeadMinutes}
+              step={0.5}
+              min={0.1}
+              max={60}
+              format={(v) => `${v}m`}
+              disabled={!settings.resumeSchedulingEnabled}
+              onChange={(v) => updateNumericSetting("resumeMinLeadMinutes", v)}
+            />
+            <Stepper
+              theme={theme}
+              label="Maximum lead time"
+              detail="Cap on how early a pre-reset resume may be scheduled."
+              value={settings.resumeMaxLeadMinutes}
+              step={1}
+              min={0.1}
+              max={120}
+              format={(v) => `${v}m`}
+              disabled={!settings.resumeSchedulingEnabled}
+              onChange={(v) => updateNumericSetting("resumeMaxLeadMinutes", v)}
+            />
+            <Stepper
+              theme={theme}
+              label="Cache-write fallback"
+              detail="Assumed cache-write cost, in plan-%, until enough history exists to learn it."
+              value={settings.cacheWriteFallbackPct}
+              step={0.1}
+              min={0.1}
+              max={20}
+              format={(v) => `${v.toFixed(1)}%`}
+              disabled={!settings.resumeSchedulingEnabled}
+              onChange={(v) => updateNumericSetting("cacheWriteFallbackPct", v)}
+            />
+            <Stepper
+              theme={theme}
+              label="Cache TTL"
+              detail="Generic prompt-cache lifetime assumed for the cache-warmth pill, every provider alike."
+              value={settings.cacheTtlMs / 60_000}
+              step={1}
+              min={1}
+              max={60}
+              format={(v) => `${v}m`}
+              disabled={!settings.showCachePill}
+              onChange={(v) => updateNumericSetting("cacheTtlMs", v * 60_000)}
+            />
+          </View>
+        </Section>
+      )}
 
       {summary === undefined || summary.bucketCount === 0 ? null : (
         <Section theme={theme} title="Where the tokens went">

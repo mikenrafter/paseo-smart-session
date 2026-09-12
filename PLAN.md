@@ -310,6 +310,16 @@ Phases 1–3 and 4–7 are independent after Phase 1; 4 doesn't need 3.
    when to *ask*, and the answer is the agent's. Mode 3 (handoff) is still open.
 3. **The store is provider-generic** — every window the provider reports is recorded, including ones
    with codenames we do not recognize. Only the UI filters.
+4. **Pre-reset resume is additive, not a replacement.** The existing post-reset heartbeat
+   (`server/schedule-plan-resume.ts`) stays the whole story for every candidate except the single
+   cheapest one per pressured window, which instead gets a heartbeat scheduled *before* `resetsAt` —
+   sized from the window's own recent burn rate, less an empirically learned cache-write cost, less a
+   configurable safety margin (`shared/resume-timing.ts`, `shared/cache-cost.ts`). `chat-resume`'s RPC
+   is never used for this mode, since it only resumes an agent that has already exhausted quota.
+
+RESEARCH.md §8.4-5 records two fields this feature reads from the daemon's `fetchAgents` payload
+(an "archived" flag, a last-activity timestamp) that are read defensively because their real names
+are unconfirmed — verify against a live payload before trusting either exclusion.
 
 ## 8. What is left
 

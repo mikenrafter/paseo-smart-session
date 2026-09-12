@@ -60,6 +60,8 @@ export const ContextStatusSchema = z.object({
   projectedFullAt: z.string().nullable(),
   /** The percentage at which this window is considered ready to compact. */
   compactAtPct: z.number(),
+  /** Last turn activity, when the daemon reports one — feeds the cache-warmth pill. */
+  lastActivityAt: z.string().nullable(),
 });
 
 /** Context occupancy for one agent, or all of them. */
@@ -100,6 +102,22 @@ export const SettingsSchema = z.object({
   planUsageCompactPct: z.number(),
   /** Minimum context tokens before a plan-pressure ask fires. */
   planUsageMinTokens: z.number(),
+  /** Whether a compacted agent may be resumed before the plan window resets. */
+  resumeSchedulingEnabled: z.boolean(),
+  /** Lookback, in minutes, for the burn rate used to size the pre-reset lead time. */
+  burnRateLookbackMinutes: z.number(),
+  /** Safety margin taken off the raw pre-reset runway, 0-100. */
+  resumeOverheadPct: z.number(),
+  resumeMinLeadMinutes: z.number(),
+  resumeMaxLeadMinutes: z.number(),
+  /** Cache-write cost estimate used until the empirical ratio can be learned. */
+  cacheWriteFallbackPct: z.number(),
+  /** Per-model $/MTok overrides, layered over the seeded cache-pricing table. */
+  cachePricingUsdPerMTok: z.record(z.string(), z.number()),
+  /** Whether the cache-warmth composer pill is drawn. */
+  showCachePill: z.boolean(),
+  /** Generic prompt-cache TTL assumed for every provider, in milliseconds. */
+  cacheTtlMs: z.number(),
 });
 
 /**

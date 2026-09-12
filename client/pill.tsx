@@ -20,10 +20,17 @@
 import type { PluginClientContext, PluginHostProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
-import { smartCompactLabel } from "../shared/format";
+import { formatRelative, smartCompactLabel } from "../shared/format";
 import { enrolmentState, setEnrolment, type EnrolmentState } from "../shared/governor";
+import {
+  nextResumeMark,
+  resumeMarkLabel,
+  resumeMarkState,
+  setResumeMarkRpc,
+  type AgentResumeState,
+} from "../shared/resume";
 
 /** How often the client re-reads enrolment, for changes made somewhere else. */
 const REFRESH_MS = 20_000;
@@ -97,6 +104,46 @@ export async function refreshPills(fetch: () => Promise<EnrolmentState>): Promis
 }
 
 /**
+ * Resume marks and pending ETAs, read into the tooltip alongside enrolment.
+ *
+ * Kept on the same `listeners` set as the pill store above rather than a second
+ * one: both only ever exist to make a mounted pill redraw, and one notification
+ * path is simpler than two.
+ */
+let resumeMarks: ReadonlyMap<string, AgentResumeState> = new Map();
+
+function resumeSnapshot(): ReadonlyMap<string, AgentResumeState> {
+  return resumeMarks;
+}
+
+function publishResume(next: ReadonlyMap<string, AgentResumeState>): void {
+  resumeMarks = next;
+  for (const listener of listeners) listener();
+}
+
+export async function refreshResumeMarks(
+  fetch: () => Promise<{ agents: readonly AgentResumeState[] }>,
+): Promise<void> {
+  const next = await fetch();
+  publishResume(new Map(next.agents.map((agent) => [agent.agentId, agent])));
+}
+
+/**
+ * Cycles one agent's resume mark, set once `contributeClient` has a live `client`.
+ *
+ * The tooltip's cycle row lives inside `AutoCompactPill`, which — like the pill
+ * itself — is a Component descriptor the host renders; it never receives `client`
+ * as a prop. A module-level handler is the same shape as `refreshPills`/
+ * `refreshResumeMarks` above: state and the means to change it live in this one
+ * client bundle regardless of which pill instance is on screen.
+ */
+let cycleHandler: ((agentId: string) => Promise<void>) | null = null;
+
+function cycleResumeMark(agentId: string): void {
+  void cycleHandler?.(agentId).catch(() => undefined);
+}
+
+/**
  * One icon, and the words only when you ask for them.
  *
  * The composer track is one line shared with Paseo's own pills, and this one has
@@ -108,8 +155,16 @@ export async function refreshPills(fetch: () => Promise<EnrolmentState>): Promis
  */
 type LegacyPillProps = PluginHostProps & { workspaceId: string; agentId: string };
 
+/** "Resumes ~14:32 (pre-reset)" / null when nothing is scheduled. */
+function pendingResumeLine(resume: AgentResumeState | undefined): string | null {
+  if (resume?.pending === null || resume?.pending === undefined) return null;
+  const when = resume.pending.scheduledFor === null ? "soon" : formatRelative(resume.pending.scheduledFor);
+  return `Resumes ${when} (${resume.pending.mode})`;
+}
+
 export function AutoCompactPill({ theme, agentId }: LegacyPillProps) {
   const current = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const resume = useSyncExternalStore(subscribe, resumeSnapshot, resumeSnapshot).get(agentId);
   const [tooltip, setTooltip] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -177,6 +232,16 @@ export function AutoCompactPill({ theme, agentId }: LegacyPillProps) {
           <Text numberOfLines={1} style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>
             {enrolled ? "Press to take this session out" : "Press to enrol this session"}
           </Text>
+          {pendingResumeLine(resume) === null ? null : (
+            <Text numberOfLines={1} style={{ color: theme.colors.foregroundMuted, fontSize: 11 }}>
+              {pendingResumeLine(resume)}
+            </Text>
+          )}
+          <Pressable onPress={() => cycleResumeMark(agentId)} style={{ marginTop: 4 }}>
+            <Text numberOfLines={1} style={{ color: theme.colors.accent, fontSize: 11 }}>
+              {`Resume: ${resumeMarkLabel(resume?.mark ?? "auto")} (tap to change)`}
+            </Text>
+          </Pressable>
         </View>
       ) : null}
     </View>
@@ -300,6 +365,13 @@ export function contributeClient(client: PluginClientContext) {
   }
 
   const refresh = () => refreshPills(() => client.rpc(enrolmentState, {}));
+  const refreshResume = () => refreshResumeMarks(() => client.rpc(resumeMarkState, {}));
+
+  cycleHandler = async (agentId: string) => {
+    const current = resumeMarks.get(agentId)?.mark ?? "auto";
+    await client.rpc(setResumeMarkRpc, { agentId, mark: nextResumeMark(current) });
+    await refreshResume();
+  };
 
   const unsubscribeStore = subscribe(sync);
 
@@ -329,12 +401,17 @@ export function contributeClient(client: PluginClientContext) {
   })();
 
   void refresh().catch(() => undefined);
-  const timer = setInterval(() => void refresh().catch(() => undefined), REFRESH_MS);
+  void refreshResume().catch(() => undefined);
+  const timer = setInterval(() => {
+    void refresh().catch(() => undefined);
+    void refreshResume().catch(() => undefined);
+  }, REFRESH_MS);
 
   return () => {
     clearInterval(timer);
     unsubscribeAgents();
     unsubscribeStore();
+    cycleHandler = null;
     for (const agentId of [...tracked.keys()]) forget(agentId);
   };
 }

@@ -40,6 +40,10 @@ interface Marker {
   readonly createdAt: string;
   readonly scheduleId?: string;
   readonly scheduledFor?: string;
+  /** "pre-reset" when this heartbeat was placed before `resetAt` to burn leftover quota. */
+  readonly mode?: "pre-reset" | "post-reset";
+  readonly leadMinutes?: number;
+  readonly cacheWritePctEstimate?: number;
 }
 
 function markerPath(agentId: string): string {
@@ -61,6 +65,25 @@ async function writeMarker(marker: Marker): Promise<void> {
   const temp = `${target}.${randomUUID()}.tmp`;
   await writeFile(temp, JSON.stringify(marker, null, 2), "utf8");
   await rename(temp, target);
+}
+
+/** The resume marker on file for an agent, for display — `null` when there is none. */
+export async function readResumeMarker(agentId: string): Promise<{
+  readonly windowId: string;
+  readonly mode: "pre-reset" | "post-reset";
+  readonly scheduledFor: string | null;
+} | null> {
+  try {
+    const raw = JSON.parse(await readFile(markerPath(agentId), "utf8")) as Partial<Marker>;
+    if (typeof raw.windowId !== "string" || typeof raw.scheduleId !== "string") return null;
+    return {
+      windowId: raw.windowId,
+      mode: raw.mode ?? "post-reset",
+      scheduledFor: raw.scheduledFor ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function alreadyScheduled(agentId: string, windowId: string, resetAt: string): Promise<boolean> {
@@ -165,8 +188,28 @@ export async function schedulePlanResume(input: {
   planPct: number;
   resetsAt: string | null;
   invokePluginRpc?: (pluginId: string, rpc: string, input: unknown) => Promise<unknown>;
+  /**
+   * When set to `"pre-reset"` with an explicit `scheduledAt` before `resetsAt`,
+   * the heartbeat burns the window's last sliver of quota instead of waiting for
+   * renewal. `chat-resume` only resumes agents that have already exhausted quota,
+   * so this mode always uses the local heartbeat fallback, never the RPC handoff.
+   */
+  mode?: "pre-reset" | "post-reset";
+  scheduledAt?: Date;
+  leadMinutes?: number;
+  cacheWritePctEstimate?: number;
 }): Promise<PlanResumeResult> {
-  const { agentId, windowId, planPct, resetsAt, invokePluginRpc } = input;
+  const {
+    agentId,
+    windowId,
+    planPct,
+    resetsAt,
+    invokePluginRpc,
+    mode = "post-reset",
+    scheduledAt: preferredScheduledAt,
+    leadMinutes,
+    cacheWritePctEstimate,
+  } = input;
 
   if (!resetsAt) {
     const marker: Marker = {
@@ -188,7 +231,9 @@ export async function schedulePlanResume(input: {
     return { ok: true, reason: "already scheduled for this window" };
   }
 
-  const viaChatResume = await tryChatResumeSchedule(agentId, invokePluginRpc);
+  // chat-resume only accepts an agent that has already exhausted quota — never
+  // applicable to a pre-reset resume, which fires while quota still remains.
+  const viaChatResume = mode === "pre-reset" ? null : await tryChatResumeSchedule(agentId, invokePluginRpc);
   if (viaChatResume?.ok) {
     await writeMarker({
       agentId,
@@ -198,6 +243,7 @@ export async function schedulePlanResume(input: {
       createdAt: new Date().toISOString(),
       scheduleId: viaChatResume.scheduleId,
       scheduledFor: viaChatResume.scheduledFor,
+      mode: "post-reset",
     });
     return viaChatResume;
   }
@@ -209,7 +255,12 @@ export async function schedulePlanResume(input: {
     }
     const now = Date.now();
     const scheduledAt = ceilToMinute(
-      new Date(Math.max(resetAt.getTime() + GRACE_MS, now + MIN_DELAY_MS)),
+      new Date(
+        Math.max(
+          (preferredScheduledAt ?? new Date(resetAt.getTime() + GRACE_MS)).getTime(),
+          now + MIN_DELAY_MS,
+        ),
+      ),
     );
     const expiresInSeconds = Math.ceil((scheduledAt.getTime() - now) / 1_000) + 86_400;
     const row = await runPaseoJson<{ id?: string; nextRunAt?: string | null }>(
@@ -242,6 +293,9 @@ export async function schedulePlanResume(input: {
       createdAt: new Date().toISOString(),
       scheduleId: row.id,
       scheduledFor,
+      mode,
+      ...(leadMinutes !== undefined ? { leadMinutes } : {}),
+      ...(cacheWritePctEstimate !== undefined ? { cacheWritePctEstimate } : {}),
     });
     return { ok: true, via: "heartbeat", scheduleId: row.id, scheduledFor };
   } catch (error) {
