@@ -8,7 +8,7 @@
  */
 
 import { existsSync, readdirSync, renameSync, rmdirSync } from "node:fs";
-import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -193,6 +193,10 @@ export async function newestUsage(): Promise<UsageSample | null> {
 
 export function noteNewestUsage(sample: UsageSample): void {
   newestCache = { value: sample };
+  // Hot-path snapshot for Stop hooks (no JSONL tail, no daemon). Best-effort.
+  void writeFile(join(dataDir(), "newest-usage.json"), JSON.stringify(sample), "utf8").catch(
+    () => undefined,
+  );
 }
 
 /** Drops in-memory state so a reload starts clean. */

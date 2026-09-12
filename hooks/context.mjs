@@ -41,6 +41,8 @@ export const DEFAULT_SETTINGS = {
   autoEnrol: true,
   freshStateMinutes: 30,
   thresholds: DEFAULT_THRESHOLDS,
+  planUsageCompactPct: 95,
+  planUsageMinTokens: 70_000,
 };
 
 /** The plugin's settings are the single source of truth when they exist. */
@@ -63,6 +65,14 @@ export function readSettings() {
         large: { ...DEFAULT_THRESHOLDS.large, ...(merged.large ?? {}) },
         small: { ...DEFAULT_THRESHOLDS.small, ...(merged.small ?? {}) },
       },
+      planUsageCompactPct:
+        typeof raw.planUsageCompactPct === "number" && raw.planUsageCompactPct > 0
+          ? Math.min(100, raw.planUsageCompactPct)
+          : DEFAULT_SETTINGS.planUsageCompactPct,
+      planUsageMinTokens:
+        typeof raw.planUsageMinTokens === "number" && raw.planUsageMinTokens >= 0
+          ? raw.planUsageMinTokens
+          : DEFAULT_SETTINGS.planUsageMinTokens,
     };
   } catch {
     return DEFAULT_SETTINGS;

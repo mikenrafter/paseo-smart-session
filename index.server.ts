@@ -36,6 +36,10 @@ import { queue } from "./server/governor.ts";
 // `Stop` hook is what asks a session to compact itself, so an install without it
 // reports "on" and does nothing at all.
 import "./server/install-on-load.ts";
+// Plan-pressure resume heartbeats (mirrors chat-resume; soft-fails without it).
+import "./server/plan-resume-watch.ts";
+import { schedulePlanResume } from "./server/schedule-plan-resume.ts";
+import { isPlanPressure } from "./shared/plan-pressure.ts";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(budgetStatus, async () => {
@@ -149,15 +153,54 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(
     requestCompaction,
-    async ({ agentId, reason, statePath, continueAfterCompaction, continuationMessage }) => ({
-      request: await queue.add({
+    async ({ agentId, reason, statePath, continueAfterCompaction, continuationMessage }) => {
+      const request = await queue.add({
         agentId,
         reason,
         statePath: statePath ?? null,
         continueAfterCompaction: continueAfterCompaction ?? true,
         continuationMessage: continueAfterCompaction === false ? null : (continuationMessage ?? null),
-      }),
-    }),
+      });
+
+      // If this compact was motivated by plan pressure (or plan is already high),
+      // mark resume-after-reset. Soft-fails when chat-resume / CLI is absent.
+      try {
+        const settings = await readSettings();
+        const newest = await newestUsage();
+        const pressure = isPlanPressure(newest, settings.planUsageCompactPct);
+        const reasonLooksPlan =
+          typeof reason === "string" && /plan window|plan pressure|plan usage/i.test(reason);
+        if (pressure !== null || reasonLooksPlan) {
+          void schedulePlanResume({
+            agentId,
+            windowId: pressure?.windowId ?? "unknown",
+            planPct: pressure?.pct ?? settings.planUsageCompactPct,
+            resetsAt: pressure?.resetsAt ?? null,
+            invokePluginRpc: (pluginId, rpc, input) =>
+              withDaemon(async (paseo) => {
+                // @getpaseo/client may expose invokePluginRpc on some builds.
+                const anyApi = paseo as unknown as {
+                  invokePluginRpc?: (a: string, b: string, c: unknown) => Promise<unknown>;
+                  plugins?: { invoke?: (a: string, b: string, c: unknown) => Promise<unknown> };
+                };
+                if (typeof anyApi.invokePluginRpc === "function") {
+                  return anyApi.invokePluginRpc(pluginId, rpc, input);
+                }
+                if (typeof anyApi.plugins?.invoke === "function") {
+                  return anyApi.plugins.invoke(pluginId, rpc, input);
+                }
+                throw new Error("invokePluginRpc not available on paseo client");
+              }),
+          });
+        }
+      } catch (error) {
+        console.warn(
+          `[smart-session] plan-resume after compact (graceful): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      return { request };
+    },
   );
 
   server.handle(listCompactions, async ({ agentId }) => {

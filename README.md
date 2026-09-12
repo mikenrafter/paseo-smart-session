@@ -35,11 +35,13 @@ That history remains useful after an individual session ends or a provider cache
 
 Requires Paseo 0.8.0 or newer with plugins enabled (**Settings → Plugins**).
 
+This repository is a maintained fork of [tomgrin10/paseo-smart-session](https://github.com/tomgrin10/paseo-smart-session) with plan-pressure compaction asks and post-reset resume scheduling.
+
 ```sh
-paseo plugin add tomgrin10/paseo-smart-session --ref v1.1.0
+paseo plugin add mikenrafter/paseo-smart-session --ref main
 ```
 
-Omit `--ref` to follow `main`.
+Omit `--ref` to follow `main`. Pin a commit SHA for deterministic installs.
 
 ```sh
 paseo plugin ls                    # confirm it is running
@@ -48,6 +50,17 @@ paseo plugin remove smart-session
 ```
 
 On first load, Smart Session registers its Claude Code hooks and MCP server. It only manages entries that point at its own scripts; other Claude Code configuration is left alone.
+
+### Fork additions (plan pressure)
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `planUsageCompactPct` | `95` | When Claude plan usage reaches this %, enrolled agents may be asked to compact |
+| `planUsageMinTokens` | `70000` | Only ask when the agent's context already holds at least this many tokens |
+
+At plan pressure the Stop hook asks the agent to checkpoint resume state and `/compact`. A one-shot heartbeat is scheduled for window reset (mirrors chat-resume; soft-fails if that plugin or the CLI is missing). Plan % is Claude-only today; Cursor has no feed here yet.
+
+BabelTele: when Claude/Cursor PreCompact hooks are installed on the host (phoe-nix `v0id.babeltele.deployUserHooks`), `/compact` summarization uses BabelTele. This plugin still only *asks*; it does not replace those hooks.
 
 ## How an agent uses it
 

@@ -61,6 +61,17 @@ export interface Settings {
    * See `server/install.ts` for what it will and will not touch.
    */
   readonly installHooks: boolean;
+  /**
+   * Plan-window occupancy (0–100) at which Stop asks enrolled agents to compact
+   * so resume after renewal stays cheap. Distinct from context-window thresholds.
+   * Claude plan usage only today; Cursor has no equivalent feed here.
+   */
+  readonly planUsageCompactPct: number;
+  /**
+   * Minimum context tokens before a plan-pressure ask fires. Avoids nagging tiny
+   * sessions when the plan meter is high for unrelated reasons.
+   */
+  readonly planUsageMinTokens: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -70,6 +81,8 @@ export const DEFAULT_SETTINGS: Settings = {
   showPill: true,
   autoEnrol: true,
   installHooks: true,
+  planUsageCompactPct: 95,
+  planUsageMinTokens: 70_000,
 };
 
 const filePath = () => join(dataDir(), "settings.json");
@@ -90,6 +103,16 @@ export async function readSettings(): Promise<Settings> {
       showPill: raw.showPill !== false,
       autoEnrol: raw.autoEnrol !== false,
       installHooks: raw.installHooks !== false,
+      planUsageCompactPct: clamp(
+        raw.planUsageCompactPct ?? DEFAULT_SETTINGS.planUsageCompactPct,
+        1,
+        100,
+      ),
+      planUsageMinTokens: clamp(
+        raw.planUsageMinTokens ?? DEFAULT_SETTINGS.planUsageMinTokens,
+        0,
+        10_000_000,
+      ),
     };
   } catch {
     cached = DEFAULT_SETTINGS;
@@ -106,6 +129,8 @@ export async function writeSettings(patch: Partial<Settings>): Promise<Settings>
     showPill: next.showPill !== false,
     autoEnrol: next.autoEnrol !== false,
     installHooks: next.installHooks !== false,
+    planUsageCompactPct: clamp(next.planUsageCompactPct, 1, 100),
+    planUsageMinTokens: clamp(next.planUsageMinTokens, 0, 10_000_000),
   };
   await mkdir(dataDir(), { recursive: true });
   const target = filePath();

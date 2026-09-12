@@ -96,6 +96,10 @@ export const SettingsSchema = z.object({
   autoEnrol: z.boolean(),
   /** Whether the plugin keeps its own hooks registered in Claude Code. */
   installHooks: z.boolean(),
+  /** Plan-window % that triggers a compact ask (Claude plan usage). */
+  planUsageCompactPct: z.number(),
+  /** Minimum context tokens before a plan-pressure ask fires. */
+  planUsageMinTokens: z.number(),
 });
 
 /**

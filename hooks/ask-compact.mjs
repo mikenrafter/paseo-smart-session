@@ -7,18 +7,9 @@
  * at the one moment where acting on it is safe, and the agent answers with its own
  * tool call. What Paseo sends is the `/compact` the agent asked for.
  *
- * `Stop` is the right event for three reasons, all of them verified against Claude
- * Code 2.1.263 rather than assumed (`RESEARCH.md` §3.4):
- *
- *   - it fires at a turn boundary, which is exactly the moment the governor used to
- *     sit in a fifteen-second poll waiting for;
- *   - its `additionalContext` is documented as "non-error feedback delivered to the
- *     model; the conversation continues so the model can act on it", so the ask
- *     costs no extra turn and needs no `decision: "block"`; and
- *   - its payload carries `background_tasks`, which is how a hook tells "this
- *     session is done" from "this session is waiting on work still in flight".
- *
- * It stays completely silent unless there is something worth stopping for.
+ * Asks fire for either context-window pressure (thresholds.compact) or Claude plan
+ * pressure (planUsageCompactPct + planUsageMinTokens). Plan pressure emphasizes
+ * resume-after-renewal checkpoints.
  */
 
 import { readFileSync } from "node:fs";
@@ -27,6 +18,7 @@ import { join } from "node:path";
 import { isEnrolled, occupancy, readSettings } from "./context.mjs";
 import { pluginDir, stateAgeSeconds, statePath } from "./pointer.mjs";
 import { readLedger, recordAsk, shouldAsk } from "./asks.mjs";
+import { readNewestPlanPressure } from "./plan-usage.mjs";
 
 /**
  * A compaction that had to be repeated within minutes is not solving the problem —
@@ -64,7 +56,7 @@ function thrashing(items, agentId, now = Date.now()) {
 }
 
 /**
- * The question.
+ * The question for context-window pressure.
  *
  * On a large window the headline is the token count, not the percentage: "30% full"
  * sounds like there is plenty of room, and 300,000 tokens does not.
@@ -98,6 +90,41 @@ function ask({ used, max, pct }, path, age, freshMinutes) {
   lines.push(
     "2. Or, if this is the wrong moment — mid-refactor, a tool sequence half finished, an answer the user is waiting on — call defer_compaction with a reason and you will not be asked again for a while.",
     "Either way, do it now and then stop. A queued compaction is delivered as a real /compact once this session goes idle; a follow-up turn is sent only if you requested one.",
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Ask when the Claude *plan* window is nearly spent and this chat already holds
+ * enough tokens that re-reading it through the reset would be expensive.
+ */
+function askForPlanPressure({ used, max, pct }, plan, path, age, freshMinutes) {
+  const stale = age === null || age > freshMinutes * 60;
+  const reset =
+    plan.resetsAt !== null
+      ? ` Window ${plan.windowId} resets at ${plan.resetsAt}.`
+      : ` Window ${plan.windowId} has no published reset time.`;
+  const lines = [
+    `Smart Compact (plan pressure): Claude plan usage is at ${Math.round(plan.pct)}% (${plan.windowId}).${reset}`,
+    `This session already holds ${used.toLocaleString()} tokens (${pct}% of a ${max.toLocaleString()}-token context). Compacting now keeps a fat prefix from burning the remainder of the plan and makes resume after renewal cheap.`,
+    "Compacting is your call. Do one of these before you stop:",
+  ];
+
+  if (stale) {
+    lines.push(
+      age === null
+        ? `1. Call checkpoint with everything a resumed agent needs: goal, current step and its exact next action, decisions and why, dead ends. Then call request_compaction with reason "plan window near limit — preserve resume state".`
+        : `1. Refresh the task state at ${path} with checkpoint (it is ${Math.round(age / 60)} minutes old), then call request_compaction with reason "plan window near limit — preserve resume state".`,
+    );
+  } else {
+    lines.push(
+      `1. Task state at ${path} is current. Call request_compaction with reason "plan window near limit — preserve resume state". Prefer continue_after_compaction so work can pick up after /compact; the follow-up should re-read the checkpoint Current step.`,
+    );
+  }
+
+  lines.push(
+    "2. Or call defer_compaction with a short reason if this is the wrong moment.",
+    "After compaction, a one-shot resume heartbeat may fire when the plan window renews (smart-session mirrors chat-resume when that plugin cannot schedule yet).",
   );
   return lines.join("\n");
 }
@@ -163,7 +190,15 @@ async function main() {
   if (!isEnrolled(agentId, settings)) return;
 
   const now = occupancy(transcriptPath, settings);
-  if (now === null || now.pct < now.profile.compact) return;
+  if (now === null) return;
+
+  const plan = readNewestPlanPressure();
+  const planHit =
+    plan !== null &&
+    plan.pct >= settings.planUsageCompactPct &&
+    now.used >= settings.planUsageMinTokens;
+  const contextHit = now.pct >= now.profile.compact;
+  if (!contextHit && !planHit) return;
 
   const ledger = readLedger(sessionId);
   if (!shouldAsk(ledger, now.pct)) return;
@@ -173,9 +208,14 @@ async function main() {
 
   const path = statePath();
   const age = stateAgeSeconds(path);
-  const text = thrashing(queue, agentId)
-    ? thrashAdvice(now)
-    : ask(now, path, age, settings.freshStateMinutes);
+  let text;
+  if (thrashing(queue, agentId)) {
+    text = thrashAdvice(now);
+  } else if (planHit) {
+    text = askForPlanPressure(now, plan, path, age, settings.freshStateMinutes);
+  } else {
+    text = ask(now, path, age, settings.freshStateMinutes);
+  }
 
   // Recorded only after it has reached stdout: a latch set on an ask that was never
   // delivered would silence the next one for nothing.
